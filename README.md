@@ -25,7 +25,8 @@ cd LLM-RAG-Bot
 2. Install the required dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install discord_py_interactions interactions.py llama_index llama-index-embeddings-huggingface llama-index-llms-groq numpy python-dotenv PyYAML torch sentence-transformers pynacl setuptools tree-sitter tree-sitter-python tree-sitter-c-sharp sentence_transformers loguru
+
 ```
 
 3. Rename the `.env.example` file to `.env` in the project root directory and add your tokens and api keys:

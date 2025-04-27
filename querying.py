@@ -8,7 +8,8 @@ import asyncio
 # --- Groq/LlamaIndex Configuration ---
 from llama_index.core.settings import Settings  # <-- Import Settings
 from llama_index.llms.groq import Groq  # <-- Import Groq LLM
-
+from llama_index.core.chat_engine import CondensePlusContextChatEngine
+from llama_index.core.memory import ChatMemoryBuffer
 
 # Load environment variables (ensure GROQ_API_KEY is set)
 load_dotenv()
@@ -26,30 +27,44 @@ Settings.llm = Groq(model=groq_model, api_key=groq_api_key)
 # --------------------------------------
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+logger.basicConfig(stream=sys.stdout, level=logger.INFO)
+logger.getLogger().addHandler(logger.StreamHandler(stream=sys.stdout))
+
+from loguru import logger
+
+logger.add("bot.log", rotation="1 MB", level="INFO")
 
 
-async def data_querying(input_text: str):
-    # load_index is now async and handles its own blocking calls
+def preprocess_query(input_text: str) -> str:
+    # Example: If query is vague, append codebase context
+    if len(input_text.split()) < 3:
+        return f"Explain {input_text} in the context of the game codebase."
+    return input_text
+
+
+async def data_querying(input_text: str, mode: str = "general", user_id: str = None):
+    processed_query = preprocess_query(input_text)
     index = await load_index("data")
     if index is None:
-        logging.error("Failed to load index in data_querying.")
-        return "Error: Could not load the data index. Please check logs."
-
-    # Creating the engine is usually fast, no need to wrap typically
-    engine = index.as_query_engine()
-
-    logging.info(
-        f"Querying index with Groq LLM ({Settings.llm.model}) (will run in thread)..."
+        return "Error: Could not load the data index."
+    context_prompt = {
+        "general": "You are a helpful assistant for a game development codebase.",
+        "docs": "Provide detailed documentation for the requested code element (e.g., function, class).",
+        "search": "Find and return code snippets matching the query.",
+        "debug": "Analyze the query as a code error and suggest fixes.",
+        "generate": "Generate a code snippet in the style of the codebase.",
+    }.get(mode, "general")
+    # Use user-specific memory for context
+    memory = ChatMemoryBuffer.from_defaults(token_limit=1500)
+    engine = CondensePlusContextChatEngine.from_defaults(
+        index.as_retriever(),
+        memory=memory,
+        llm=Settings.llm,
+        context_prompt=context_prompt,
     )
-    try:
-        # --- Wrap the blocking query call ---
-        response = await run_blocking(engine.query, input_text)
-        # ----------------------------------
+    response = await run_blocking(engine.chat, processed_query)
+    if mode == "generate":
+        response_text = f"```csharp\n{response.response}\n```"  # Format as code block
+    else:
         response_text = response.response
-        logging.info(f"Groq Response: {response_text}")
-        return response_text
-    except Exception as e:
-        logging.error(f"Error during engine.query: {e}", exc_info=True)
-        return f"Error during query processing: {e}"
+    return response_text

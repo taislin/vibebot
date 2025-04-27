@@ -11,3 +11,8 @@ torch==2.2.2
 sentence-transformers==2.6.1
 pynacl==1.5.0
 setuptools==69.5.1
+tree-sitter=0.24.0
+tree-sitter-python=0.23.6
+tree-sitter-c-sharp=0.23.6
+sentence_transformers==4.1.0
+loguru==0.7.3

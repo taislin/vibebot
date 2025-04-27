@@ -5,7 +5,7 @@ from llama_index.core import (
 )
 from llama_index.core.storage.storage_context import StorageContext
 from dotenv import load_dotenv
-import logging
+from loguru import logger
 import sys
 import os
 import asyncio
@@ -15,42 +15,30 @@ from llama_index.core.settings import Settings
 from llama_index.llms.groq import Groq
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-# ---------------------------------------------------------
-from loguru import logger
-
+# Configure logging
+logger.remove()
 logger.add("bot.log", rotation="1 MB", level="INFO")
+logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 
+# Load environment variables
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
 groq_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
 embed_model = os.getenv("EMBED_MODEL", "jinaai/jina-embeddings-v2-base-code")
 
-# --- Ensure Embeddings are configured if needed ---
-if not Settings.embed_model:
-    logger.info("Configuring HuggingFace Embeddings in manage_embedding.py")
-    Settings.embed_model = HuggingFaceEmbedding(
-        model_name=embed_model,
-    )
-# -------------------------------------------------
+# Configure LLM and embeddings immediately
+if not groq_api_key:
+    logger.error("GROQ_API_KEY not found. Cannot configure LLM.")
+    raise ValueError("GROQ_API_KEY environment variable not set.")
+logger.info("Configuring Groq LLM")
+Settings.llm = Groq(model=groq_model, api_key=groq_api_key)
 
-# Only configure LLM if not already set and if the API key is available
-if not isinstance(Settings.llm, Groq) and groq_api_key:
-    logger.info("Configuring Groq LLM in manage_embedding.py")
-    Settings.llm = Groq(model=groq_model, api_key=groq_api_key)
-elif not groq_api_key and not isinstance(Settings.llm, Groq):
-    logger.warning(
-        "GROQ_API_KEY not found. LLM configuration might be missing or default."
-    )
-# --------------------------------------
-
-
-logger.basicConfig(stream=sys.stdout, level=logger.INFO)
-logger.getLogger().addHandler(logger.StreamHandler(stream=sys.stdout))
+logger.info("Configuring HuggingFace Embeddings")
+Settings.embed_model = HuggingFaceEmbedding(model_name=embed_model)
 
 
 # Helper function to run blocking IO/CPU tasks
 async def run_blocking(func, *args, **kwargs):
-    # Runs the synchronous function 'func' in a separate thread
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
@@ -63,7 +51,6 @@ async def load_index(directory_path: str = r"data"):
 
     logger.info(f"Attempting to load documents from: {directory_path}")
     try:
-        # --- Wrap blocking file reading ---
         reader = SimpleDirectoryReader(
             directory_path,
             filename_as_id=True,
@@ -71,7 +58,6 @@ async def load_index(directory_path: str = r"data"):
             recursive=True,
         )
         documents = await run_blocking(reader.load_data)
-        # ----------------------------------
         logger.info(f"Loaded {len(documents)} documents/pages.")
         if not documents:
             logger.warning(
@@ -88,12 +74,10 @@ async def load_index(directory_path: str = r"data"):
 
     try:
         logger.info(f"Attempting to load index from storage: {persist_dir}")
-        # --- Wrap blocking storage loading ---
         storage_context = await run_blocking(
             StorageContext.from_defaults, persist_dir=persist_dir
         )
         index = await run_blocking(load_index_from_storage, storage_context)
-        # -----------------------------------
         logger.info("Index loaded successfully from storage.")
 
     except FileNotFoundError:
@@ -112,29 +96,14 @@ async def load_index(directory_path: str = r"data"):
 
         try:
             logger.info(f"Ensuring storage directory exists: {persist_dir}")
-            # os.makedirs is generally fast, but can be wrapped if causing issues
             await run_blocking(os.makedirs, persist_dir, exist_ok=True)
-
-            logger.info(
-                "Creating new vector store index from documents (will run in thread)..."
-            )
-            # --- Wrap blocking index creation ---
+            logger.info("Creating new vector store index from documents...")
             index = await run_blocking(
-                VectorStoreIndex.from_documents,
-                documents,
-                show_progress=True,  # Note: progress bar might not display correctly from thread
+                VectorStoreIndex.from_documents, documents, show_progress=True
             )
-            # ------------------------------------
-
-            logger.info(
-                f"Persisting newly created index to {persist_dir} (will run in thread)..."
-            )
-            # --- Wrap blocking persistence ---
-            # Accessing index.storage_context should be fine, persist() is the blocking part
+            logger.info(f"Persisting newly created index to {persist_dir}...")
             await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
-            # -------------------------------
-
-            logger.info(f"New index created and persisted successfully.")
+            logger.info("New index created and persisted successfully.")
 
         except Exception as e:
             logger.error(f"Error creating or persisting new index: {e}", exc_info=True)
@@ -203,4 +172,7 @@ async def update_index(directory_path: str = r"data"):
             return []
     except FileNotFoundError:
         logger.error("Index not found. Run load_index first.")
+        return None
+    except Exception as e:
+        logger.error(f"Error during index update: {e}", exc_info=True)
         return None

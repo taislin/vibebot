@@ -48,7 +48,7 @@ Settings.embed_model = HuggingFaceEmbedding(
 # --- Now safely import your app modules ---
 print("Importing application modules...")
 from querying import data_querying
-from manage_embedding import update_index, run_blocking
+from manage_embedding import update_index, run_blocking, load_index
 
 # --- Use interactions.py Intents ---
 intents = Intents.DEFAULT
@@ -180,13 +180,13 @@ async def list_functions(ctx: SlashContext):
         await ctx.send(f"An error occurred: {e}", ephemeral=True)
 
 
-@slash_command(
-    name="indexstatus", description="Check index status", scopes=[MY_GUILD_ID]
-)
+@slash_command(name="indexstatus", description="Check index status", scopes=[guild_id])
 async def index_status(ctx: SlashContext):
     await ctx.defer()
     try:
-        index = await load_index("data")
+        index = await run_blocking(
+            load_index, "data"
+        )  # Use run_blocking for async compatibility
         if index is None:
             await ctx.send("Index not found.", ephemeral=True)
             return
@@ -204,7 +204,7 @@ async def index_status(ctx: SlashContext):
 @slash_command(
     name="pullrepo",
     description="Pull latest codebase from GitHub",
-    scopes=[MY_GUILD_ID],
+    scopes=[guild_id],
 )
 async def pull_repo(ctx: SlashContext):
     await ctx.defer()

@@ -1,107 +1,99 @@
-import asyncio
 import click
-import os
-import subprocess
-from loguru import logger
+import asyncio
 from manage_embedding import load_index, update_index
 from querying import data_querying
-from code_parser import list_functions
+from loguru import logger
 
-# Configure logging
+# Logging
 logger.remove()
 logger.add("bot.log", rotation="1 MB", level="INFO")
 logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 
 
+async def query(text: str, mode: str):
+    logger.info(f"Running query: {text} (mode: {mode})")
+    index = await load_index()
+    if index is None:
+        logger.error("Index is not loaded.")
+        print("Error: Index is not loaded.")
+        return
+    try:
+        response = await data_querying(index, text, mode=mode)
+        print(f"Query: {text}")
+        print(f"Mode: {mode}")
+        if isinstance(response, dict):
+            print("Response:")
+            print(f"Summary: {response.get('summary')}")
+            print("Sources:", ", ".join(response.get("sources", [])))
+        elif isinstance(response, list):
+            print("Response:")
+            for item in response:
+                print(f"File: {item.get('file_path')}")
+                print(f"Score: {item.get('score')}")
+                print(f"Text: {item.get('text')}")
+                print("-" * 50)
+        else:
+            print(f"Response: {response}")
+    except Exception as e:
+        logger.error(f"Error during query: {e}", exc_info=True)
+        print(f"Error: {e}")
+
+
+async def update():
+    logger.info("Running update_index...")
+    try:
+        changed_files = await update_index()
+        if changed_files is None:
+            logger.error("Error during update: update_index returned None")
+            print("Error: update_index failed")
+        elif changed_files:
+            print(f"Updated index with {len(changed_files)} changed files.")
+        else:
+            print("No changes detected.")
+    except Exception as e:
+        logger.error(f"Error during update: {e}", exc_info=True)
+        print(f"Error: {e}")
+
+
+async def index_status():
+    logger.info("Checking index status...")
+    try:
+        index = await load_index()
+        if index is None:
+            logger.error("Index is not loaded.")
+            print("Index is not loaded.")
+        else:
+            print("Index is loaded and ready.")
+    except Exception as e:
+        logger.error(f"Error checking index status: {e}", exc_info=True)
+        print(f"Error: {e}")
+
+
 @click.group()
 def cli():
-    """Command-line interface for LLM-RAG-Bot to query and manage a game development codebase."""
     pass
 
 
 @cli.command()
-@click.argument("query_text")
+@click.argument("text")
 @click.option(
     "--mode",
     default="general",
     type=click.Choice(["general", "docs", "search", "debug", "generate"]),
-    help="Query mode: general, docs, search, debug, generate",
+    help="Query mode",
 )
-def query(query_text, mode):
-    """Query the codebase with a given text and mode."""
-    logger.info(f"Running query: {query_text} (mode: {mode})")
-    try:
-        response = asyncio.run(data_querying(query_text, mode=mode))
-        click.echo(f"Query: {query_text}\nMode: {mode}\nResponse: {response}")
-    except Exception as e:
-        logger.error(f"Error during query: {e}", exc_info=True)
-        click.echo(f"Error: {e}")
+def query_cmd(text, mode):
+    asyncio.run(query(text, mode))
 
 
 @cli.command()
 def update():
-    """Update the codebase index."""
-    logger.info("Running index update")
-    try:
-        update_results = asyncio.run(update_index())
-        if update_results is not None:
-            num_updated = sum(1 for refreshed in update_results if refreshed)
-            click.echo(f"Updated/Refreshed {num_updated} documents.")
-        else:
-            click.echo("Index not found or error during update. Check logs.")
-    except Exception as e:
-        logger.error(f"Error during update: {e}", exc_info=True)
-        click.echo(f"Error: {e}")
-
-
-@cli.command()
-def list_functions():
-    """List functions in the codebase."""
-    logger.info("Listing functions in codebase")
-    try:
-        functions = asyncio.run(list_functions("data"))
-        response = "\n".join(functions) if functions else "No functions found."
-        click.echo(f"Functions in Codebase:\n{response}")
-    except Exception as e:
-        logger.error(f"Error listing functions: {e}", exc_info=True)
-        click.echo(f"Error: {e}")
+    asyncio.run(update())
 
 
 @cli.command()
 def index_status():
-    """Check the status of the index."""
-    logger.info("Checking index status")
-    try:
-        index = asyncio.run(load_index("data"))
-        if index is None:
-            click.echo("Index not found.")
-            return
-        doc_count = len(index.docstore.docs)
-        last_updated = (
-            os.path.getmtime("./storage") if os.path.exists("./storage") else "Unknown"
-        )
-        click.echo(
-            f"Index Status:\n- Documents: {doc_count}\n- Last Updated: {last_updated}"
-        )
-    except Exception as e:
-        logger.error(f"Error checking index status: {e}", exc_info=True)
-        click.echo(f"Error: {e}")
-
-
-@cli.command()
-def pull_repo():
-    """Pull the latest codebase from GitHub."""
-    logger.info("Pulling latest codebase from GitHub")
-    try:
-        subprocess.run(["git", "-C", "data", "pull", "origin", "master"], check=True)
-        update_results = asyncio.run(update_index())
-        num_updated = (
-            sum(1 for refreshed in update_results if refreshed) if update_results else 0
-        )
-        click.echo(f"Repository updated. Refreshed {num_updated} documents.")
-    except Exception as e:
-        logger.error(f"Error pulling repository: {e}", exc_info=True)
-        click.echo(f"Error: {e}")
+    asyncio.run(index_status())
 
 
 if __name__ == "__main__":

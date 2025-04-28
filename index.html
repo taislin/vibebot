@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM-RAG-Bot Interface</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-900 flex items-center justify-center h-screen">
     <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-2xl flex flex-col h-[80vh]">
         <h1 class="text-2xl font-bold mb-4 text-center text-white">LLM-RAG-Bot Query Interface</h1>
@@ -13,16 +15,19 @@
             <!-- Query and response pairs will be appended here -->
         </div>
         <div class="flex flex-col">
-            <input
-                type="text"
-                id="queryInput"
-                placeholder="Enter your query (e.g., show me which animal entities are present)"
-                class="w-full p-2 mb-2 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-                onclick="sendQuery()"
-                class="w-full bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"
-            >
+            <div class="flex mb-2">
+                <input type="text" id="queryInput"
+                    placeholder="Enter your query (e.g., show me which animal entities are present)"
+                    class="flex-1 p-2 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <select id="modeSelect" class="ml-2 p-2 bg-gray-700 text-white border border-gray-600 rounded-lg">
+                    <option value="general">General</option>
+                    <option value="docs">Docs</option>
+                    <option value="search">Search</option>
+                    <option value="debug">Debug</option>
+                    <option value="generate">Generate</option>
+                </select>
+            </div>
+            <button onclick="sendQuery()" class="w-full bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700">
                 Submit Query
             </button>
         </div>
@@ -31,17 +36,18 @@
     <script>
         async function sendQuery() {
             const query = document.getElementById('queryInput').value.trim();
+            const mode = document.getElementById('modeSelect').value;
             if (!query) {
                 alert('Please enter a query.');
                 return;
             }
 
             const chatContainer = document.getElementById('chatContainer');
-            
+
             // Append query
             const queryElement = document.createElement('div');
             queryElement.className = 'mb-2 p-2 bg-gray-600 rounded-lg text-white';
-            queryElement.textContent = `Query: ${query}`;
+            queryElement.textContent = `Query: ${query} (Mode: ${mode})`;
             chatContainer.appendChild(queryElement);
 
             // Append processing message
@@ -57,7 +63,7 @@
                 const response = await fetch('/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ query, mode })
                 });
 
                 if (!response.ok) {
@@ -66,7 +72,7 @@
 
                 const data = await response.json();
                 const result = data.result || data.error || 'No response received.';
-                
+
                 // Update response element
                 responseElement.textContent = `Response: ${result}`;
             } catch (error) {
@@ -81,4 +87,5 @@
         }
     </script>
 </body>
+
 </html>

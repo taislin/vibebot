@@ -239,7 +239,7 @@ async def index_status(ctx: SlashContext):
 # --- Pull Repo Slash Command ---
 @slash_command(
     name="pullrepo",
-    description="Pull latest codebase from GitHub",
+    description="Pull latest data from GitHub",
     scopes=[int(guild_id)] if guild_id else None,
 )
 async def pull_repo(ctx: SlashContext):

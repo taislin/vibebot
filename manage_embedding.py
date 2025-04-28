@@ -208,7 +208,7 @@ async def update_index(directory_path: str = r"data"):
             logger.debug(f"Changed files: {changed_files[:10]}")
 
         if changed_files:
-            batch_size = 100  # Reduced from 250
+            batch_size = 50
             for i in range(0, len(changed_files), batch_size):
                 batch_files = changed_files[i : i + batch_size]
                 logger.info(

@@ -26,7 +26,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers["Content-Length"])
             post_data = self.rfile.read(content_length)
             try:
-                query = json.loads(post_data.decode("utf-8"))["query"]
+                data = json.loads(post_data.decode("utf-8"))
+                query = data.get("query")
+                mode = data.get("mode", "general")  # Get mode from request
             except json.JSONDecodeError:
                 self.send_response(400)
                 self.end_headers()
@@ -35,15 +37,19 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             try:
                 # Define paths
-                venv_python = "python"
-                cli_path = "./cli.py"
+                venv_python = "/home/civ13/LLM-RAG-Bot/venv/bin/python"
+                cli_path = "/home/civ13/LLM-RAG-Bot/cli.py"
 
                 # Verify paths exist
+                if not os.path.exists(venv_python):
+                    raise FileNotFoundError(
+                        f"Python executable not found at {venv_python}"
+                    )
                 if not os.path.exists(cli_path):
                     raise FileNotFoundError(f"cli.py not found at {cli_path}")
 
                 # Run cli.py query command
-                cmd = [venv_python, cli_path, "query", query, "--mode", "docs"]
+                cmd = [venv_python, cli_path, "query", query, "--mode", mode]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
                 if result.returncode == 0:

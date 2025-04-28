@@ -23,8 +23,8 @@ logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 # Load environment variables
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
-groq_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
-embed_model = os.getenv("EMBED_MODEL", "jinaai/jina-embeddings-v2-base-code")
+groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+embed_model = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 # Configure LLM and embeddings immediately
 if not groq_api_key:
@@ -54,7 +54,12 @@ async def load_index(directory_path: str = r"data"):
         reader = SimpleDirectoryReader(
             directory_path,
             filename_as_id=True,
-            exclude=["*.exe", "*.bin", "*.dll", ".bat", ".sh"],
+            exclude=["*.exe", "*.bin", "*.dll", "*.bat", "*.sh"],
+            file_extractor={
+                ".cs": "TextFileReader",
+                ".py": "TextFileReader",
+                ".yml": "TextFileReader",
+            },
             recursive=True,
         )
         documents = await run_blocking(reader.load_data)
@@ -99,7 +104,12 @@ async def load_index(directory_path: str = r"data"):
             await run_blocking(os.makedirs, persist_dir, exist_ok=True)
             logger.info("Creating new vector store index from documents...")
             index = await run_blocking(
-                VectorStoreIndex.from_documents, documents, show_progress=True
+                VectorStoreIndex.from_documents,
+                documents,
+                show_progress=True,
+                chunk_size=1024,
+                chunk_overlap=200,
+                transformations_kwargs={"batch_size": 32},  # Enable batching
             )
             logger.info(f"Persisting newly created index to {persist_dir}...")
             await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
@@ -130,7 +140,8 @@ async def update_index(directory_path: str = r"data"):
     for root, _, files in os.walk(directory_path):
         for file in files:
             if not any(
-                file.endswith(ext) for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
+                file.endswith(ext)
+                for ext in [".exe", ".bin", ".dll", ".bat", ".sh", ".txt", ".md"]
             ):
                 file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)
@@ -151,6 +162,12 @@ async def update_index(directory_path: str = r"data"):
                 or file_metadata[f] > os.path.getmtime(f"{persist_dir}/{f}.meta")
             ],
             filename_as_id=True,
+            exclude=["*.exe", "*.bin", "*.dll", "*.bat", "*.sh", "*.txt", "*.md"],
+            file_extractor={
+                ".cs": "TextFileReader",
+                ".py": "TextFileReader",
+                ".yml": "TextFileReader",
+            },
         )
         documents = await run_blocking(reader.load_data)
         if documents:

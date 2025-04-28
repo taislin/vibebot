@@ -27,7 +27,7 @@ logger.add("bot.log", rotation="1 MB", level="INFO")
 # --- Configure Settings BEFORE anything else ---
 groq_api_key = os.getenv("GROQ_API_KEY")
 discord_bot_token = os.getenv("DISCORD_BOT_TOKEN")
-groq_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
+groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 guild_id = os.getenv("GUILD_ID")
 embed_model = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
@@ -68,6 +68,13 @@ async def save_memory(fact_text: str):
     index.insert(new_doc)
     await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
     return f'I\'ve learned: "{fact_text}"'
+
+
+# --- Helper: Split long text into chunks ---
+def split_text(text: str, max_length: int = 1024) -> list:
+    if not isinstance(text, str):
+        text = str(text)
+    return [text[i : i + max_length] for i in range(0, len(text), max_length)]
 
 
 # --- Helper: Load plugins dynamically ---
@@ -121,6 +128,7 @@ async def on_ready():
 async def get_response(ctx: SlashContext, input_text: str, mode: str = "general"):
     await ctx.defer()
     try:
+        logger.info(f"Processing query: {input_text} (mode: {mode})")
         if input_text.lower().startswith("learn:"):
             fact = input_text[len("learn:") :].strip()
             response = await save_memory(fact)
@@ -130,12 +138,20 @@ async def get_response(ctx: SlashContext, input_text: str, mode: str = "general"
             )
         embed = Embed(
             title="Query Response",
-            description=f"**Input**: {input_text}\n**Mode**: {mode}",
+            description=f"**Input**: {input_text[:1000]}\n**Mode**: {mode}",
             color=0x00FF00,
         )
-        embed.add_field(name="Response", value=response, inline=False)
+        response_chunks = split_text(response, max_length=1024)
+        logger.info(f"Sending {len(response_chunks)} response chunks")
+        for i, chunk in enumerate(response_chunks, 1):
+            embed.add_field(
+                name=f"Response (Part {i})" if len(response_chunks) > 1 else "Response",
+                value=chunk,
+                inline=False,
+            )
         await ctx.send(embeds=embed)
     except Exception as e:
+        logger.error(f"Error in query command: {e}", exc_info=True)
         await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
 
 
@@ -158,6 +174,7 @@ async def updated_database(ctx: SlashContext):
         await ctx.send(content=response)
     except Exception as e:
         print(f"Error during DB update: {e}")
+        logger.error(f"Error in updatedb command: {e}", exc_info=True)
         await ctx.send(
             content=f"An error occurred while updating the database: {e}",
             ephemeral=True,
@@ -177,8 +194,20 @@ async def list_functions(ctx: SlashContext):
 
         functions = await list_functions("data")
         response = "\n".join(functions) if functions else "No functions found."
-        await ctx.send(content=f"**Functions in Codebase**:\n{response}")
+        response_chunks = split_text(response, max_length=1024)
+        embed = Embed(title="Functions in Codebase", color=0x00FF00)
+        logger.info(f"Sending {len(response_chunks)} function list chunks")
+        for i, chunk in enumerate(response_chunks, 1):
+            embed.add_field(
+                name=(
+                    f"Functions (Part {i})" if len(response_chunks) > 1 else "Functions"
+                ),
+                value=chunk,
+                inline=False,
+            )
+        await ctx.send(embeds=embed)
     except Exception as e:
+        logger.error(f"Error in listfunctions command: {e}", exc_info=True)
         await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
 
 
@@ -203,6 +232,7 @@ async def index_status(ctx: SlashContext):
             content=f"Index Status:\n- Documents: {doc_count}\n- Last Updated: {last_updated}"
         )
     except Exception as e:
+        logger.error(f"Error in indexstatus command: {e}", exc_info=True)
         await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
 
 
@@ -226,6 +256,7 @@ async def pull_repo(ctx: SlashContext):
             content=f"Repository updated. Refreshed {num_updated} documents."
         )
     except Exception as e:
+        logger.error(f"Error in pullrepo command: {e}", exc_info=True)
         await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
 
 

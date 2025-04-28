@@ -9,6 +9,7 @@ from llama_index.core.settings import Settings
 from llama_index.llms.groq import Groq
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core import VectorStoreIndex, StorageContext, load_index_from_storage
 
 # Configure logging
 logger.remove()
@@ -18,7 +19,7 @@ logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 # Load environment variables
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
-groq_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
+groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 if not groq_api_key:
     raise ValueError("GROQ_API_KEY environment variable not set.")
 
@@ -33,37 +34,27 @@ def preprocess_query(input_text: str) -> str:
     return input_text
 
 
-async def data_querying(input_text: str, mode: str = "general", user_id: str = None):
-    processed_query = preprocess_query(input_text)
-    index = await load_index("data")
-    if index is None:
-        logger.error("Failed to load index in data_querying.")
-        return "Error: Could not load the data index."
-    context_prompt = {
-        "general": "You are a helpful assistant for a game development codebase.",
-        "docs": "Provide detailed documentation for the requested code element (e.g., function, class).",
-        "search": "Find and return code snippets matching the query.",
-        "debug": "Analyze the query as a code error and suggest fixes.",
-        "generate": "Generate a code snippet in the style of the codebase.",
-    }.get(mode, "general")
-    memory = ChatMemoryBuffer.from_defaults(token_limit=1500)
-    engine = CondensePlusContextChatEngine.from_defaults(
-        index.as_retriever(),
-        memory=memory,
-        llm=Settings.llm,
-        context_prompt=context_prompt,
-    )
-    logger.info(
-        f"Querying index with Groq LLM ({Settings.llm.model}) for: {processed_query}"
-    )
+async def data_querying(query: str, mode: str = "general", user_id: str = None):
+    logger.info(f"Querying index with Groq LLM ({Settings.llm.model}) for: {query}")
     try:
-        response = await run_blocking(engine.chat, processed_query)
-        if mode == "generate":
-            response_text = f"```csharp\n{response.response}\n```"
-        else:
-            response_text = response.response
-        logger.info(f"Response: {response_text}")
-        return response_text
+        storage_context = StorageContext.from_defaults(persist_dir="./storage")
+        index = load_index_from_storage(storage_context)
+        if not index.docstore.docs:
+            logger.warning("Index is empty. Please run /updatedb or cli.py update.")
+            return "No code found in the database. Please update the index using /updatedb."
+
+        retriever = index.as_retriever(similarity_top_k=5)
+        nodes = retriever.retrieve(query)
+        if not nodes:
+            logger.info(f"No relevant documents found for query: {query}")
+            return f"No relevant code found for: {query}. Try rephrasing or updating the index."
+
+        context = "\n".join([node.text for node in nodes])
+        logger.info(f"Retrieved {len(nodes)} documents for query: {query}")
+
+        prompt = f"Based on the following code context, answer the query: {query}\n\nContext:\n{context}\n\nAnswer:"
+        response = await Settings.llm.acomplete(prompt)
+        return response.text
     except Exception as e:
-        logger.error(f"Error during engine.query: {e}", exc_info=True)
-        return f"Error during query processing: {e}"
+        logger.error(f"Error querying index: {e}", exc_info=True)
+        return f"Error querying the database: {e}"

@@ -10,6 +10,7 @@ import asyncio
 import unicodedata
 from llama_index.core.readers.base import BaseReader
 from llama_index.core.schema import Document
+import gc
 
 # Groq/LlamaIndex Configuration
 from llama_index.core.settings import Settings
@@ -116,9 +117,9 @@ async def load_index(directory_path: str = r"data"):
                 VectorStoreIndex.from_documents,
                 documents,
                 show_progress=True,
-                chunk_size=1024,
-                chunk_overlap=200,
-                transformations_kwargs={"batch_size": 32},
+                chunk_size=2048,
+                chunk_overlap=400,
+                transformations_kwargs={"batch_size": 64},
             )
             logger.info(f"Persisting index to {persist_dir}...")
             await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
@@ -141,59 +142,121 @@ async def update_index(directory_path: str = r"data"):
         logger.error(f"Data directory not found: {directory_path}")
         return None
 
+    logger.info("Scanning files for metadata...")
     file_metadata = {}
     for root, _, files in os.walk(directory_path):
         for file in files:
             if not any(
                 file.endswith(ext)
-                for ext in [".exe", ".bin", "*.dll", "*.bat", "*.sh", "*.txt", "*.md"]
+                for ext in [".exe", ".bin", ".dll", ".bat", ".sh", ".txt", ".md"]
             ):
                 file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)
+    logger.info(f"Found {len(file_metadata)} files.")
 
     try:
+        logger.info("Loading storage context...")
         storage_context = await run_blocking(
             StorageContext.from_defaults, persist_dir=persist_dir
         )
+        logger.info("Loading existing index...")
         index = await run_blocking(load_index_from_storage, storage_context)
         logger.info("Existing index loaded.")
 
-        reader = SimpleDirectoryReader(
-            input_files=[
-                f
-                for f in file_metadata
-                if not os.path.exists(f"{persist_dir}/{f}.meta")
-                or file_metadata[f] > os.path.getmtime(f"{persist_dir}/{f}.meta")
-            ],
-            filename_as_id=True,
-            exclude=["*.exe", "*.bin", "*.dll", "*.bat", "*.sh", "*.txt", "*.md"],
-            file_extractor={
-                ".cs": CustomTextFileReader(),
-                ".py": CustomTextFileReader(),
-                ".yml": CustomTextFileReader(),
-            },
-        )
-        documents = await run_blocking(reader.load_data)
-        documents = [doc for doc in documents if doc is not None]
-        if documents:
-            refreshed_docs = await run_blocking(
-                index.refresh_ref_docs,
-                documents,
-                update_kwargs={"delete_kwargs": {"delete_from_docstore": True}},
-            )
-            refreshed_count = sum(1 for refreshed in refreshed_docs if refreshed)
-            logger.info(f"Refreshed {refreshed_count} documents.")
-            await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
-            for file in file_metadata:
-                with open(f"{persist_dir}/{f}.meta", "w") as f:
-                    f.write(str(file_metadata[file]))
-            return refreshed_docs
+        logger.info("Checking for changed files...")
+        changed_files = [
+            f
+            for f in file_metadata
+            if not os.path.exists(f"{persist_dir}/{f}.meta")
+            or file_metadata[f] > os.path.getmtime(f"{persist_dir}/{f}.meta")
+        ]
+        logger.info(f"Found {len(changed_files)} changed files.")
+
+        if changed_files:
+            batch_size = 100  # Increased from 100
+            for i in range(0, len(changed_files), batch_size):
+                batch_files = changed_files[i : i + batch_size]
+                logger.info(
+                    f"Processing batch {i // batch_size + 1} with {len(batch_files)} files..."
+                )
+
+                logger.info("Loading changed documents...")
+                reader = SimpleDirectoryReader(
+                    input_files=batch_files,
+                    filename_as_id=True,
+                    exclude=[
+                        "*.exe",
+                        "*.bin",
+                        "*.dll",
+                        "*.bat",
+                        "*.sh",
+                        "*.txt",
+                        "*.md",
+                    ],
+                    file_extractor={
+                        ".cs": CustomTextFileReader(),
+                        ".py": CustomTextFileReader(),
+                        ".yml": CustomTextFileReader(),
+                    },
+                )
+                documents = await run_blocking(reader.load_data)
+                documents = [doc for doc in documents if doc is not None]
+                logger.info(f"Loaded {len(documents)} changed documents.")
+
+                if documents:
+                    logger.info("Refreshing documents...")
+                    try:
+                        refreshed_docs = await asyncio.wait_for(
+                            run_blocking(
+                                index.refresh_ref_docs,
+                                documents,
+                                update_kwargs={
+                                    "delete_kwargs": {"delete_from_docstore": True}
+                                },
+                            ),
+                            timeout=600,  # 10-minute timeout
+                        )
+                        refreshed_count = sum(
+                            1 for refreshed in refreshed_docs if refreshed
+                        )
+                        logger.info(f"Refreshed {refreshed_count} documents.")
+                    except asyncio.TimeoutError:
+                        logger.error("Document refresh timed out after 10 minutes.")
+                        return None
+
+                    logger.info("Persisting index...")
+                    try:
+                        await asyncio.wait_for(
+                            run_blocking(
+                                index.storage_context.persist, persist_dir=persist_dir
+                            ),
+                            timeout=600,
+                        )
+                        logger.info("Index persisted.")
+                    except asyncio.TimeoutError:
+                        logger.error("Index persistence timed out after 10 minutes.")
+                        return None
+
+                    logger.info("Saving metadata for batch...")
+                    for file in batch_files:
+                        with open(f"{persist_dir}/{file}.meta", "w") as f:
+                            f.write(str(file_metadata[file]))
+                    logger.info("Metadata saved for batch.")
+
+                    # Clean up memory
+                    del documents, refreshed_docs
+                    gc.collect()
+                    logger.info("Memory cleaned up.")
+                else:
+                    logger.info("No documents to refresh in batch.")
+
+            return changed_files
         else:
             logger.info("No changes detected.")
             return []
     except FileNotFoundError:
-        logger.error("Index not found. Run load_index first.")
-        return None
+        logger.error("Index not found. Creating new index...")
+        return await load_index(directory_path)
     except Exception as e:
         logger.error(f"Error during index update: {e}", exc_info=True)
         return None

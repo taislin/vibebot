@@ -8,6 +8,8 @@ import sys
 import os
 import asyncio
 import unicodedata
+from llama_index.core.readers.base import BaseReader
+from llama_index.core.schema import Document
 
 # Groq/LlamaIndex Configuration
 from llama_index.core.settings import Settings
@@ -42,16 +44,19 @@ def clean_text(text: str) -> str:
 
 
 # Custom file reader
-class CustomTextFileReader:
-    def __call__(self, file_path: str):
+class CustomTextFileReader(BaseReader):
+    def load_data(self, file_path: str, extra_info: dict = None):
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 text = f.read()
             cleaned_text = clean_text(text)
-            return {"text": cleaned_text, "file_path": file_path}
+            metadata = {"file_path": file_path}
+            if extra_info:
+                metadata.update(extra_info)
+            return [Document(text=cleaned_text, metadata=metadata)]
         except Exception as e:
             logger.error(f"Error reading file {file_path}: {e}", exc_info=True)
-            return None
+            return []
 
 
 # Run blocking tasks
@@ -111,8 +116,8 @@ async def load_index(directory_path: str = r"data"):
                 VectorStoreIndex.from_documents,
                 documents,
                 show_progress=True,
-                chunk_size=2048,
-                chunk_overlap=400,
+                chunk_size=1024,
+                chunk_overlap=200,
                 transformations_kwargs={"batch_size": 32},
             )
             logger.info(f"Persisting index to {persist_dir}...")
@@ -141,7 +146,7 @@ async def update_index(directory_path: str = r"data"):
         for file in files:
             if not any(
                 file.endswith(ext)
-                for ext in [".exe", ".bin", ".dll", ".bat", ".sh", ".txt", ".md"]
+                for ext in [".exe", ".bin", "*.dll", "*.bat", "*.sh", "*.txt", "*.md"]
             ):
                 file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)

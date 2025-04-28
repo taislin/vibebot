@@ -62,7 +62,9 @@ class CustomTextFileReader(BaseReader):
 
 # Run blocking tasks
 async def run_blocking(func, *args, **kwargs):
-    return await asyncio.to_thread(func, *args, **kwargs)
+    result = await asyncio.to_thread(func, *args, **kwargs)
+    gc.collect()
+    return result
 
 
 async def load_index(directory_path: str = r"data"):
@@ -147,8 +149,7 @@ async def update_index(directory_path: str = r"data"):
     for root, _, files in os.walk(directory_path):
         for file in files:
             if not any(
-                file.endswith(ext)
-                for ext in [".exe", ".bin", ".dll", ".bat", ".sh", ".txt", ".md"]
+                file.endswith(ext) for ext in [".exe", ".bin", "*.dll", "*.bat", "*.sh"]
             ):
                 file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)
@@ -173,7 +174,7 @@ async def update_index(directory_path: str = r"data"):
         logger.info(f"Found {len(changed_files)} changed files.")
 
         if changed_files:
-            batch_size = 100  # Increased from 100
+            batch_size = 250
             for i in range(0, len(changed_files), batch_size):
                 batch_files = changed_files[i : i + batch_size]
                 logger.info(
@@ -214,14 +215,14 @@ async def update_index(directory_path: str = r"data"):
                                     "delete_kwargs": {"delete_from_docstore": True}
                                 },
                             ),
-                            timeout=600,  # 10-minute timeout
+                            timeout=300,
                         )
                         refreshed_count = sum(
                             1 for refreshed in refreshed_docs if refreshed
                         )
                         logger.info(f"Refreshed {refreshed_count} documents.")
                     except asyncio.TimeoutError:
-                        logger.error("Document refresh timed out after 10 minutes.")
+                        logger.error("Document refresh timed out after 5 minutes.")
                         return None
 
                     logger.info("Persisting index...")
@@ -230,11 +231,11 @@ async def update_index(directory_path: str = r"data"):
                             run_blocking(
                                 index.storage_context.persist, persist_dir=persist_dir
                             ),
-                            timeout=600,
+                            timeout=300,
                         )
                         logger.info("Index persisted.")
                     except asyncio.TimeoutError:
-                        logger.error("Index persistence timed out after 10 minutes.")
+                        logger.error("Index persistence timed out after 5 minutes.")
                         return None
 
                     logger.info("Saving metadata for batch...")
@@ -256,7 +257,8 @@ async def update_index(directory_path: str = r"data"):
             return []
     except FileNotFoundError:
         logger.error("Index not found. Creating new index...")
-        return await load_index(directory_path)
+        index = await load_index(directory_path)
+        return [] if index else None
     except Exception as e:
         logger.error(f"Error during index update: {e}", exc_info=True)
         return None

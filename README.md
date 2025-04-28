@@ -11,7 +11,6 @@ This was created as a fork of the [LLM-RAG-Bot](https://github.com/nur-zaman/LLM
 Before running the bot, make sure you have the following dependencies installed:
 
 -   Python 3.10 or higher
--   The packages in the requirements.txt. Run `pip install -r requirements.txt` to install them.
 
 ## Getting Started
 

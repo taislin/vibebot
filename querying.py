@@ -7,6 +7,7 @@ import asyncio
 # --- Groq/LlamaIndex Configuration ---
 from llama_index.core.settings import Settings
 from llama_index.llms.groq import Groq
+from llama_index.core.types import ChatMessage
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core import VectorStoreIndex, StorageContext, load_index_from_storage

@@ -119,13 +119,25 @@ async def load_index(directory_path: str = r"data"):
                 VectorStoreIndex.from_documents,
                 documents,
                 show_progress=True,
-                chunk_size=2048,
+                chunk_size=1024,
                 chunk_overlap=400,
                 transformations_kwargs={"batch_size": 64},
             )
             logger.info(f"Persisting index to {persist_dir}...")
             await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
             logger.info("Index created and persisted.")
+            # Save .meta files for all documents
+            logger.info("Saving .meta files for initial index...")
+            for doc in documents:
+                file_path = doc.metadata.get("file_path")
+                if file_path and os.path.exists(file_path):
+                    meta_path = os.path.join(persist_dir, f"{file_path}.meta")
+                    os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+                    try:
+                        with open(meta_path, "w") as f:
+                            f.write(str(os.path.getmtime(file_path)))
+                    except Exception as e:
+                        logger.error(f"Failed to save .meta for {file_path}: {e}")
         except Exception as e:
             logger.error(f"Error creating index: {e}", exc_info=True)
             return None
@@ -149,7 +161,7 @@ async def update_index(directory_path: str = r"data"):
     for root, _, files in os.walk(directory_path):
         for file in files:
             if not any(
-                file.endswith(ext) for ext in [".exe", ".bin", "*.dll", "*.bat", "*.sh"]
+                file.endswith(ext) for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
             ):
                 file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)
@@ -165,16 +177,38 @@ async def update_index(directory_path: str = r"data"):
         logger.info("Existing index loaded.")
 
         logger.info("Checking for changed files...")
-        changed_files = [
-            f
-            for f in file_metadata
-            if not os.path.exists(f"{persist_dir}/{f}.meta")
-            or file_metadata[f] > os.path.getmtime(f"{persist_dir}/{f}.meta")
-        ]
+        changed_files = []
+        for file_path in file_metadata:
+            meta_path = os.path.join(persist_dir, f"{file_path}.meta")
+            file_mtime = file_metadata[file_path]
+            if not os.path.exists(meta_path):
+                logger.debug(f"No .meta file for {file_path}, marking as changed")
+                changed_files.append(file_path)
+            else:
+                try:
+                    with open(meta_path, "r") as f:
+                        meta_mtime_str = f.read().strip()
+                    meta_mtime = float(meta_mtime_str)
+                    if abs(file_mtime - meta_mtime) > 1:  # Allow 1-second tolerance
+                        logger.debug(
+                            f"File {file_path} changed (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                        )
+                        changed_files.append(file_path)
+                    else:
+                        logger.debug(
+                            f"File {file_path} unchanged (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                        )
+                except (ValueError, IOError) as e:
+                    logger.error(
+                        f"Invalid .meta file for {file_path}: {e}, marking as changed"
+                    )
+                    changed_files.append(file_path)
         logger.info(f"Found {len(changed_files)} changed files.")
+        if changed_files:
+            logger.debug(f"Changed files: {changed_files[:10]}")
 
         if changed_files:
-            batch_size = 250
+            batch_size = 100  # Reduced from 250
             for i in range(0, len(changed_files), batch_size):
                 batch_files = changed_files[i : i + batch_size]
                 logger.info(
@@ -222,7 +256,14 @@ async def update_index(directory_path: str = r"data"):
                         )
                         logger.info(f"Refreshed {refreshed_count} documents.")
                     except asyncio.TimeoutError:
-                        logger.error("Document refresh timed out after 5 minutes.")
+                        logger.error(
+                            f"Document refresh timed out after 180 seconds for batch {i // batch_size + 1}"
+                        )
+                        return None
+                    except Exception as e:
+                        logger.error(
+                            f"Error refreshing documents in batch {i // batch_size + 1}: {e}"
+                        )
                         return None
 
                     logger.info("Persisting index...")
@@ -235,14 +276,21 @@ async def update_index(directory_path: str = r"data"):
                         )
                         logger.info("Index persisted.")
                     except asyncio.TimeoutError:
-                        logger.error("Index persistence timed out after 5 minutes.")
+                        logger.error(
+                            f"Index persistence timed out after 180 seconds for batch {i // batch_size + 1}"
+                        )
                         return None
 
-                    logger.info("Saving metadata for batch...")
+                    logger.info("Updating .meta files for batch...")
                     for file in batch_files:
-                        with open(f"{persist_dir}/{file}.meta", "w") as f:
-                            f.write(str(file_metadata[file]))
-                    logger.info("Metadata saved for batch.")
+                        meta_path = os.path.join(persist_dir, f"{file}.meta")
+                        os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+                        try:
+                            with open(meta_path, "w") as f:
+                                f.write(str(file_metadata[file]))
+                        except Exception as e:
+                            logger.error(f"Failed to update .meta for {file}: {e}")
+                    logger.info("Metadata updated for batch.")
 
                     # Clean up memory
                     del documents, refreshed_docs

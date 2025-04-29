@@ -12,6 +12,7 @@ from llama_index.core.readers.base import BaseReader
 from llama_index.core.schema import Document
 import gc
 from pathlib import Path
+import json
 
 # Groq/LlamaIndex Configuration
 from llama_index.core.settings import Settings
@@ -197,9 +198,12 @@ async def update_index(directory_path: str = r"data"):
             StorageContext.from_defaults, persist_dir=persist_dir
         )
         logger.info("Loading existing index...")
-        index = await run_blocking(load_index_from_storage, storage_context)
-        logger.info("Existing index loaded.")
-
+        try:
+            index = await run_blocking(load_index_from_storage, storage_context)
+            logger.info("Existing index loaded.")
+        except Exception as e:
+            logger.error(f"Failed to load index from storage: {e}", exc_info=True)
+            raise
         logger.info("Checking for changed files...")
         changed_files = []
         for file_path in file_metadata:
@@ -212,19 +216,31 @@ async def update_index(directory_path: str = r"data"):
                 try:
                     with open(meta_path, "r") as f:
                         meta_mtime_str = f.read().strip()
-                    meta_mtime = float(meta_mtime_str)
-                    if abs(file_mtime - meta_mtime) > 0.01:  # 10ms tolerance
-                        logger.debug(
-                            f"File {file_path} changed (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                    if not meta_mtime_str:  # Check for empty file
+                        logger.warning(
+                            f"Empty .meta file for {file_path}, marking as changed"
                         )
                         changed_files.append(file_path)
-                    else:
-                        logger.debug(
-                            f"File {file_path} unchanged (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                        continue
+                    try:
+                        meta_mtime = float(meta_mtime_str)
+                        if abs(file_mtime - meta_mtime) > 0.01:  # 10ms tolerance
+                            logger.debug(
+                                f"File {file_path} changed (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                            )
+                            changed_files.append(file_path)
+                        else:
+                            logger.debug(
+                                f"File {file_path} unchanged (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
+                            )
+                    except ValueError as e:
+                        logger.error(
+                            f"Invalid .meta file content for {file_path}: {meta_mtime_str}, error: {e}, marking as changed"
                         )
-                except (ValueError, IOError) as e:
+                        changed_files.append(file_path)
+                except IOError as e:
                     logger.error(
-                        f"Invalid .meta file for {file_path}: {e}, marking as changed"
+                        f"Error reading .meta file for {file_path}: {e}, marking as changed"
                     )
                     changed_files.append(file_path)
         logger.info(f"Found {len(changed_files)} changed files.")
@@ -298,13 +314,30 @@ async def update_index(directory_path: str = r"data"):
                             ),
                             timeout=300,
                         )
-                        logger.info("Index persisted.")
+                        # Verify vector_store.json
+                        vector_store_path = os.path.join(
+                            persist_dir, "vector_store.json"
+                        )
+                        if os.path.exists(vector_store_path):
+                            with open(vector_store_path, "r") as f:
+                                json.load(f)  # Raises JSONDecodeError if invalid
+                            logger.info(
+                                "Index persisted and vector_store.json validated."
+                            )
+                        else:
+                            logger.warning(
+                                "vector_store.json not found after persisting."
+                            )
                     except asyncio.TimeoutError:
                         logger.error(
                             f"Index persistence timed out after 300 seconds for batch {i // batch_size + 1}"
                         )
                         return None
-
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"Invalid JSON in vector_store.json: {e}", exc_info=True
+                        )
+                        return None
                     logger.info("Updating .meta files for batch...")
                     for file in batch_files:
                         meta_path = os.path.join(persist_dir, f"{file}.meta")

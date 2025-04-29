@@ -11,6 +11,7 @@ import unicodedata
 from llama_index.core.readers.base import BaseReader
 from llama_index.core.schema import Document
 import gc
+from pathlib import Path
 
 # Groq/LlamaIndex Configuration
 from llama_index.core.settings import Settings
@@ -47,18 +48,19 @@ def clean_text(text: str) -> str:
 # Custom file reader
 class CustomTextFileReader(BaseReader):
     def load_data(self, file_path: str, extra_info: dict = None):
-        with open(file_path, "r", encoding="utf-8") as f:
-            text = f.read()
-        cleaned_text = clean_text(text)
-        metadata = {
-            "file_path": file_path,
-            "doc_type": "code" if file_path.endswith((".py", ".cs")) else "text",
-            "created_at": os.path.getctime(file_path),
-            "tags": extra_info.get("tags", []),
-        }
-        if extra_info:
-            metadata.update(extra_info)
-        return [Document(text=cleaned_text, metadata=metadata)]
+        # Convert PosixPath to string if necessary
+        file_path = str(file_path) if isinstance(file_path, Path) else file_path
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            cleaned_text = clean_text(text)
+            metadata = {"file_path": file_path}
+            if extra_info:
+                metadata.update(extra_info)
+            return [Document(text=cleaned_text, metadata=metadata)]
+        except Exception as e:
+            logger.error(f"Error reading file {file_path}: {e}", exc_info=True)
+            return []
 
 
 # Run blocking tasks
@@ -86,7 +88,7 @@ async def load_index(directory_path: str = r"data"):
                 "*.bat",
                 "*.sh",
                 ".git/*",
-            ],  # Exclude .git
+            ],
             file_extractor={
                 ".cs": CustomTextFileReader(),
                 ".py": CustomTextFileReader(),
@@ -94,6 +96,7 @@ async def load_index(directory_path: str = r"data"):
             },
             recursive=True,
         )
+        # Ensure file paths are strings
         documents = await run_blocking(reader.load_data)
         documents = [doc for doc in documents if doc is not None]
         logger.info(f"Loaded {len(documents)} documents/pages.")
@@ -165,15 +168,17 @@ async def update_index(directory_path: str = r"data"):
         return None
 
     logger.info("Scanning files for metadata...")
+
     file_metadata = {}
     for root, _, files in os.walk(directory_path):
-        if ".git" in root:  # Skip .git directory
+        if ".git" in root:
             continue
         for file in files:
+            file_path = os.path.join(root, file)
             if not any(
-                file.endswith(ext) for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
+                file_path.endswith(ext)
+                for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
             ):
-                file_path = os.path.join(root, file)
                 file_metadata[file_path] = os.path.getmtime(file_path)
     logger.info(f"Found {len(file_metadata)} files.")
 
@@ -227,7 +232,7 @@ async def update_index(directory_path: str = r"data"):
 
                 logger.info("Loading changed documents...")
                 reader = SimpleDirectoryReader(
-                    input_files=batch_files,
+                    input_files=[str(f) for f in batch_files],  # Convert to strings
                     filename_as_id=True,
                     exclude=[
                         "*.exe",

@@ -2,7 +2,7 @@ import click
 import asyncio
 import os
 from manage_embedding import load_index, update_index
-from querying import data_querying
+from querying import data_querying, memory
 from loguru import logger
 
 # Logging
@@ -56,6 +56,13 @@ async def query(text: str, mode: str):
                 print("-" * 50)
         else:
             print(f"Response: {response}")
+        # Display conversation history
+        history = memory.load_memory_variables({})["history"]
+        if history:
+            print("\nConversation History:")
+            for i, msg in enumerate(history):
+                role = "Human" if i % 2 == 0 else "Assistant"
+                print(f"{role}: {msg.content}")
     except Exception as e:
         logger.error(f"Error during query: {e}", exc_info=True)
         print(f"Error: {e}")
@@ -88,6 +95,16 @@ async def check_index_status_async():  # Renamed async function slightly for cla
             print("Index is loaded and ready.")
     except Exception as e:
         logger.error(f"Error checking index status: {e}", exc_info=True)
+        print(f"Error: {e}")
+
+
+async def clear_memory():
+    logger.info("Clearing conversation memory...")
+    try:
+        memory.clear()
+        print("Conversation memory cleared.")
+    except Exception as e:
+        logger.error(f"Error clearing memory: {e}", exc_info=True)
         print(f"Error: {e}")
 
 
@@ -125,6 +142,11 @@ def update_cmd():  # Renamed function to avoid potential clashes
 def index_status_cmd():  # Renamed function to avoid potential clashes
     """Checks if the index is loaded."""
     asyncio.run(check_index_status_async())
+
+
+@cli.command("clear-memory")
+def clear_memory():
+    asyncio.run(clear_memory())
 
 
 if __name__ == "__main__":

@@ -47,17 +47,18 @@ def clean_text(text: str) -> str:
 # Custom file reader
 class CustomTextFileReader(BaseReader):
     def load_data(self, file_path: str, extra_info: dict = None):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            cleaned_text = clean_text(text)
-            metadata = {"file_path": file_path}
-            if extra_info:
-                metadata.update(extra_info)
-            return [Document(text=cleaned_text, metadata=metadata)]
-        except Exception as e:
-            logger.error(f"Error reading file {file_path}: {e}", exc_info=True)
-            return []
+        with open(file_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        cleaned_text = clean_text(text)
+        metadata = {
+            "file_path": file_path,
+            "doc_type": "code" if file_path.endswith((".py", ".cs")) else "text",
+            "created_at": os.path.getctime(file_path),
+            "tags": extra_info.get("tags", []),
+        }
+        if extra_info:
+            metadata.update(extra_info)
+        return [Document(text=cleaned_text, metadata=metadata)]
 
 
 # Run blocking tasks

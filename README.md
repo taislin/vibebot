@@ -43,7 +43,7 @@ Vibebot is a Discord bot that leverages **[Retrieval-Augmented Generation (RAG)]
 2. **Install dependencies**:
 
     ```bash
-    pip install discord-py-interactions interactions.py llama-index llama-index-embeddings-huggingface llama-index-llms-groq numpy python-dotenv PyYAML torch sentence-transformers pynacl setuptools tree-sitter tree-sitter-python tree-sitter-c-sharp sentence_transformers loguru requests langchain langchain_community
+    pip install discord-py-interactions interactions.py llama-index llama-index-embeddings-huggingface llama-index-llms-groq numpy python-dotenv PyYAML torch sentence-transformers pynacl setuptools tree-sitter tree-sitter-python tree-sitter-c-sharp sentence_transformers loguru requests langchain langchain_community beautifulsoup4
     ```
 
 3. **Set up environment variables**:

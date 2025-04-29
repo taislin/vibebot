@@ -1,18 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM-RAG-Bot Interface</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-
 <body class="bg-gray-900 flex items-center justify-center h-screen">
     <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-2xl flex flex-col h-[80vh]">
         <h1 class="text-2xl font-bold mb-4 text-center text-white">LLM-RAG-Bot Query Interface</h1>
         <div class="flex-1 overflow-y-auto mb-4 p-4 bg-gray-700 rounded-lg" id="chatContainer">
-            <!-- Query and response pairs will be appended here -->
+            <!-- Conversation history and query-response pairs will be appended here -->
         </div>
         <div class="flex flex-col">
             <div class="flex mb-2">
@@ -27,13 +25,29 @@
                     <option value="generate">Generate</option>
                 </select>
             </div>
-            <button onclick="sendQuery()" class="w-full bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700">
-                Submit Query
-            </button>
+            <div class="flex space-x-2">
+                <button onclick="sendQuery()" class="flex-1 bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700">
+                    Submit Query
+                </button>
+                <button onclick="clearMemory()" class="flex-1 bg-red-600 text-white p-2 rounded-lg hover:bg-red-700">
+                    Clear Memory
+                </button>
+            </div>
         </div>
     </div>
 
     <script>
+        function appendMessage(role, content, isHistory = false) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageElement = document.createElement('div');
+            messageElement.className = `mb-2 p-2 rounded-lg text-white ${
+                role === 'user' ? 'bg-blue-600' : 'bg-green-600'
+            } ${isHistory ? 'opacity-75' : ''}`;
+            messageElement.textContent = `${role.charAt(0).toUpperCase() + role.slice(1)}: ${content}`;
+            chatContainer.appendChild(messageElement);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
         async function sendQuery() {
             const query = document.getElementById('queryInput').value.trim();
             const mode = document.getElementById('modeSelect').value;
@@ -45,18 +59,13 @@
             const chatContainer = document.getElementById('chatContainer');
 
             // Append query
-            const queryElement = document.createElement('div');
-            queryElement.className = 'mb-2 p-2 bg-gray-600 rounded-lg text-white';
-            queryElement.textContent = `Query: ${query} (Mode: ${mode})`;
-            chatContainer.appendChild(queryElement);
+            appendMessage('user', `${query} (Mode: ${mode})`);
 
             // Append processing message
             const responseElement = document.createElement('div');
             responseElement.className = 'mb-2 p-2 bg-gray-700 rounded-lg text-white';
             responseElement.textContent = 'Processing...';
             chatContainer.appendChild(responseElement);
-
-            // Scroll to bottom
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
             try {
@@ -74,18 +83,56 @@
                 const result = data.result || data.error || 'No response received.';
 
                 // Update response element
-                responseElement.textContent = `Response: ${result}`;
+                responseElement.className = 'mb-2 p-2 bg-green-600 rounded-lg text-white';
+                responseElement.textContent = `Assistant: ${result}`;
+
+                // Append history if available
+                if (data.history && data.history.length > 0) {
+                    chatContainer.innerHTML = ''; // Clear current content
+                    data.history.forEach(msg => {
+                        appendMessage(msg.role, msg.content, true);
+                    });
+                    // Re-append current query and response
+                    appendMessage('user', `${query} (Mode: ${mode})`);
+                    appendMessage('assistant', result);
+                }
             } catch (error) {
+                responseElement.className = 'mb-2 p-2 bg-red-600 rounded-lg text-white';
                 responseElement.textContent = `Error: ${error.message}`;
             }
-
-            // Scroll to bottom again
-            chatContainer.scrollTop = chatContainer.scrollHeight;
 
             // Clear input
             document.getElementById('queryInput').value = '';
         }
+
+        async function clearMemory() {
+            const chatContainer = document.getElementById('chatContainer');
+            const responseElement = document.createElement('div');
+            responseElement.className = 'mb-2 p-2 bg-gray-700 rounded-lg text-white';
+            responseElement.textContent = 'Clearing memory...';
+            chatContainer.appendChild(responseElement);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            try {
+                const response = await fetch('/clear_memory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                responseElement.className = 'mb-2 p-2 bg-green-600 rounded-lg text-white';
+                responseElement.textContent = data.result || `Error: ${data.error}`;
+                chatContainer.innerHTML = ''; // Clear chat container
+            } catch (error) {
+                responseElement.className = 'mb-2 p-2 bg-red-600 rounded-lg text-white';
+                responseElement.textContent = `Error: ${error.message}`;
+            }
+        }
     </script>
 </body>
-
 </html>

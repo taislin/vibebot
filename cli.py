@@ -102,6 +102,7 @@ async def clear_memory():
     logger.info("Clearing conversation memory...")
     try:
         memory.clear()
+        logger.info("Conversation memory cleared.")
         print("Conversation memory cleared.")
     except Exception as e:
         logger.error(f"Error clearing memory: {e}", exc_info=True)

@@ -162,6 +162,7 @@ async def clear_memory_cmd(ctx: SlashContext):
     await ctx.defer()
     try:
         memory.clear()
+        logger.info("Conversation memory cleared.")
         await ctx.send("Conversation memory cleared.", ephemeral=True)
     except Exception as e:
         logger.error(f"Error in clear_memory command: {e}", exc_info=True)

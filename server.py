@@ -2,6 +2,7 @@ import subprocess
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+from querying import memory  # Import memory from querying.py
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -36,25 +37,17 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             try:
-                # Load conversation history
-                history_file = "data/conversation_history.jsonl"
-                os.makedirs(os.path.dirname(history_file), exist_ok=True)
-                history = []
-                if os.path.exists(history_file):
-                    with open(history_file, "r", encoding="utf-8") as f:
-                        for line in f:
-                            history.append(json.loads(line.strip()))
-
                 # Run cli.py query command
-                venv_python = "/home/python/bin/python"
-                if os.name == "nt":
-                    venv_python = "python"
-                else:
-                    if not os.path.exists(venv_python):
-                        raise FileNotFoundError(
-                            f"Python executable not found at {venv_python}"
-                        )
+                venv_python = (
+                    os.path.join("venv", "Scripts", "python.exe")
+                    if os.name == "nt"
+                    else "/home/civ13/LLM-RAG-Bot/venv/bin/python"
+                )
                 cli_path = "cli.py"
+                if not os.path.exists(venv_python):
+                    raise FileNotFoundError(
+                        f"Python executable not found at {venv_python}"
+                    )
                 if not os.path.exists(cli_path):
                     raise FileNotFoundError(f"cli.py not found at {cli_path}")
 
@@ -76,7 +69,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         response_text = "\n".join(
                             output_lines[response_start + 1 :]
                         ).strip()
-                        # Extract summary from response_text (assuming it starts after "Summary:")
+                        # Extract summary from response_text
                         summary_start = (
                             response_text.find("Summary:") + 8
                             if "Summary:" in response_text
@@ -89,28 +82,29 @@ class RequestHandler(BaseHTTPRequestHandler):
                         )
                     else:
                         response_text = result.stdout.strip()
-                    response = {"result": response_text, "history": history}
 
-                    # Append to history
-                    history.append({"role": "user", "content": query})
-                    history.append({"role": "assistant", "content": response_text})
-                    with open(history_file, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"role": "user", "content": query}) + "\n")
-                        f.write(
-                            json.dumps({"role": "assistant", "content": response_text})
-                            + "\n"
-                        )
+                    # Load conversation history from memory
+                    history = memory.load_memory_variables({})["history"]
+                    history_formatted = [
+                        {
+                            "role": "user" if i % 2 == 0 else "assistant",
+                            "content": msg.content,
+                        }
+                        for i, msg in enumerate(history)
+                    ]
+
+                    response = {"result": response_text, "history": history_formatted}
                 else:
-                    response = {"error": result.stderr, "history": history}
+                    response = {"error": result.stderr, "history": []}
             except subprocess.TimeoutExpired:
                 response = {
                     "error": "Query timed out after 60 seconds.",
-                    "history": history,
+                    "history": [],
                 }
             except FileNotFoundError as e:
-                response = {"error": str(e), "history": history}
+                response = {"error": str(e), "history": []}
             except Exception as e:
-                response = {"error": f"Unexpected error: {str(e)}", "history": history}
+                response = {"error": f"Unexpected error: {str(e)}", "history": []}
 
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -119,9 +113,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/clear_memory":
             try:
-                history_file = "data/conversation_history.jsonl"
-                if os.path.exists(history_file):
-                    os.remove(history_file)
+                memory.clear()
                 response = {"result": "Conversation memory cleared."}
             except Exception as e:
                 response = {"error": f"Error clearing memory: {str(e)}"}

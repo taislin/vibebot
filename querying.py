@@ -1,5 +1,6 @@
 from llama_index.core import VectorStoreIndex
 from langchain.memory import ConversationBufferMemory
+from langchain_community.chat_message_histories import FileChatMessageHistory
 from loguru import logger
 from llama_index.llms.groq import Groq
 from dotenv import load_dotenv
@@ -10,9 +11,15 @@ logger.remove()
 logger.add("bot.log", rotation="1 MB", level="INFO")
 logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 
-# Initialize memory
+# Initialize memory with FileChatMessageHistory
+history_file = "data/conversation_history.jsonl"
+os.makedirs(os.path.dirname(history_file), exist_ok=True)
+chat_history = FileChatMessageHistory(file_path=history_file)
 memory = ConversationBufferMemory(
-    return_messages=True, input_key="input", output_key="output"
+    chat_memory=chat_history,
+    return_messages=True,
+    input_key="input",
+    output_key="output",
 )
 
 # Load environment variables

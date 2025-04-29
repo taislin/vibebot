@@ -82,7 +82,7 @@ def cli():
     type=click.Choice(["general", "docs", "search", "debug", "generate"]),
     help="Query mode",
 )
-def query(text, mode):
+def query_cmd(text, mode):
     asyncio.run(query(text, mode))
 
 

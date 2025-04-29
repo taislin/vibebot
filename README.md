@@ -108,13 +108,13 @@ The command-line interface (`cli.py`) allows direct interaction with the knowled
 -   **Query the knowledge base**:
 
     ```bash
-    python cli.py query "your query here" --mode docs
+    python cli.py query-cmd "your query here" --mode docs
     ```
 
     Example:
 
     ```bash
-    python cli.py query "show me which animal entities are present in the code" --mode docs
+    python cli.py query-cmd "show me which animal entities are present in the code" --mode docs
     ```
 
 -   **Update the knowledge base**:
@@ -150,7 +150,7 @@ Vibebot supports multiple query modes to customize how queries are processed and
     -   **Purpose**: Focuses on summarizing content from the knowledge base with source references.
     -   **Behavior**: Retrieves up to 10 documents, uses `tree_summarize` to aggregate content, and returns a structured response with a summary and list of source file paths.
     -   **Use Case**: Detailed queries requiring information from multiple files.
-    -   **Example**: `python cli.py query "Show me which animal entities are present in the code" --mode docs`
+    -   **Example**: `python cli.py query-cmd "Show me which animal entities are present in the code" --mode docs`
     -   **Output**: A summary (e.g., "Animal entities include...") and sources (e.g., `data/file1.cs, data/file2.py`).
 
 -   **search**:
@@ -158,7 +158,7 @@ Vibebot supports multiple query modes to customize how queries are processed and
     -   **Purpose**: Acts like a search engine, returning raw document snippets with relevance scores.
     -   **Behavior**: Retrieves up to 8 documents, returns snippets (up to 500 characters each) with file paths and similarity scores, without LLM-generated text.
     -   **Use Case**: Finding specific code or text matches in the knowledge base.
-    -   **Example**: `python cli.py query "Find all references to 'discord' in the code" --mode search`
+    -   **Example**: `python cli.py -cmd "Find all references to 'discord' in the code" --mode search`
     -   **Output**: A list of snippets (e.g., `File: data/bot.py, Score: 0.95, Text: import discord...`).
 
 -   **debug**:
@@ -166,14 +166,14 @@ Vibebot supports multiple query modes to customize how queries are processed and
     -   **Purpose**: Provides diagnostic information for troubleshooting queries.
     -   **Behavior**: Retrieves up to 5 documents, returns raw snippets with scores, and enables verbose logging for detailed query processing information (check `bot.log`).
     -   **Use Case**: Debugging issues with the knowledge base or query results.
-    -   **Example**: `python cli.py query "Why is the index failing?" --mode debug`
+    -   **Example**: `python cli.py query-cmd "Why is the index failing?" --mode debug`
     -   **Output**: Similar to `search` but with additional logs in `bot.log`.
 
 -   **generate**:
     -   **Purpose**: Emphasizes creative or generative responses with minimal reliance on the knowledge base.
     -   **Behavior**: Retrieves only 2 documents and prioritizes the Groq LLM’s generative capabilities for a creative or elaborated response.
     -   **Use Case**: Creative tasks or questions requiring less strict adherence to the knowledge base.
-    -   **Example**: `python cli.py query "Write a poem about Vibebot" --mode generate`
+    -   **Example**: `python cli.py query-cmd "Write a poem about Vibebot" --mode generate`
     -   **Output**: A creative response (e.g., a poem about Vibebot).
 
 ## Webserver

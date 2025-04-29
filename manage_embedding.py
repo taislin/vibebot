@@ -78,7 +78,14 @@ async def load_index(directory_path: str = r"data"):
         reader = SimpleDirectoryReader(
             directory_path,
             filename_as_id=True,
-            exclude=["*.exe", "*.bin", "*.dll", "*.bat", "*.sh", "*.txt", "*.md"],
+            exclude=[
+                "*.exe",
+                "*.bin",
+                "*.dll",
+                "*.bat",
+                "*.sh",
+                ".git/*",
+            ],  # Exclude .git
             file_extractor={
                 ".cs": CustomTextFileReader(),
                 ".py": CustomTextFileReader(),
@@ -119,9 +126,9 @@ async def load_index(directory_path: str = r"data"):
                 VectorStoreIndex.from_documents,
                 documents,
                 show_progress=True,
-                chunk_size=1024,
-                chunk_overlap=400,
-                transformations_kwargs={"batch_size": 64},
+                chunk_size=1024,  # Reduced
+                chunk_overlap=200,  # Reduced
+                transformations_kwargs={"batch_size": 32},  # Reduced
             )
             logger.info(f"Persisting index to {persist_dir}...")
             await run_blocking(index.storage_context.persist, persist_dir=persist_dir)
@@ -159,6 +166,8 @@ async def update_index(directory_path: str = r"data"):
     logger.info("Scanning files for metadata...")
     file_metadata = {}
     for root, _, files in os.walk(directory_path):
+        if ".git" in root:  # Skip .git directory
+            continue
         for file in files:
             if not any(
                 file.endswith(ext) for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
@@ -208,7 +217,7 @@ async def update_index(directory_path: str = r"data"):
             logger.debug(f"Changed files: {changed_files[:10]}")
 
         if changed_files:
-            batch_size = 50
+            batch_size = 25
             for i in range(0, len(changed_files), batch_size):
                 batch_files = changed_files[i : i + batch_size]
                 logger.info(
@@ -225,8 +234,7 @@ async def update_index(directory_path: str = r"data"):
                         "*.dll",
                         "*.bat",
                         "*.sh",
-                        "*.txt",
-                        "*.md",
+                        ".git/*",
                     ],
                     file_extractor={
                         ".cs": CustomTextFileReader(),
@@ -257,13 +265,15 @@ async def update_index(directory_path: str = r"data"):
                         logger.info(f"Refreshed {refreshed_count} documents.")
                     except asyncio.TimeoutError:
                         logger.error(
-                            f"Document refresh timed out after 180 seconds for batch {i // batch_size + 1}"
+                            f"Document refresh timed out after 300 seconds for batch {i // batch_size + 1}"
                         )
+                        logger.error(f"Files causing timeout: {batch_files}")
                         return None
                     except Exception as e:
                         logger.error(
                             f"Error refreshing documents in batch {i // batch_size + 1}: {e}"
                         )
+                        logger.error(f"Files causing error: {batch_files}")
                         return None
 
                     logger.info("Persisting index...")
@@ -277,7 +287,7 @@ async def update_index(directory_path: str = r"data"):
                         logger.info("Index persisted.")
                     except asyncio.TimeoutError:
                         logger.error(
-                            f"Index persistence timed out after 180 seconds for batch {i // batch_size + 1}"
+                            f"Index persistence timed out after 300 seconds for batch {i // batch_size + 1}"
                         )
                         return None
 

@@ -18,8 +18,6 @@ chat_history = FileChatMessageHistory(file_path=history_file)
 memory = ConversationBufferMemory(
     chat_memory=chat_history,
     return_messages=True,
-    input_key="input",
-    output_key="output",
 )
 
 # Load environment variables
@@ -52,9 +50,12 @@ async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general
         # Combine context with current query
         full_query = f"{context}\nHuman: {text}" if context else text
 
+        # Create query engine
+        query_engine = index.as_query_engine(llm=llm, similarity_top_k=3)
+
         # Query the index with context
         if mode == "general":
-            response = await index.query(full_query, llm=llm, similarity_top_k=3)
+            response = await query_engine.aquery(full_query)
             response_text = str(response)
             # Save response to memory
             memory.save_context({"input": text}, {"output": response_text})
@@ -65,7 +66,8 @@ async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general
                 ],
             }
         elif mode == "docs":
-            response = await index.query(full_query, llm=llm, similarity_top_k=5)
+            query_engine = index.as_query_engine(llm=llm, similarity_top_k=5)
+            response = await query_engine.aquery(full_query)
             return [
                 {
                     "file_path": node.metadata.get("file_path"),
@@ -75,7 +77,8 @@ async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general
                 for node in response.source_nodes
             ]
         elif mode == "search":
-            response = await index.query(full_query, llm=llm, similarity_top_k=10)
+            query_engine = index.as_query_engine(llm=llm, similarity_top_k=10)
+            response = await query_engine.aquery(full_query)
             return [
                 {
                     "file_path": node.metadata.get("file_path"),
@@ -85,7 +88,8 @@ async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general
                 for node in response.source_nodes
             ]
         elif mode == "debug":
-            response = await index.query(full_query, llm=llm, similarity_top_k=3)
+            query_engine = index.as_query_engine(llm=llm, similarity_top_k=3)
+            response = await query_engine.aquery(full_query)
             return {
                 "query": full_query,
                 "response": str(response),

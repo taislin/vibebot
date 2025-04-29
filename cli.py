@@ -56,13 +56,6 @@ async def query(text: str, mode: str):
                 print("-" * 50)
         else:
             print(f"Response: {response}")
-        # Display conversation history
-        history = memory.load_memory_variables({})["history"]
-        if history:
-            print("\nConversation History:")
-            for i, msg in enumerate(history):
-                role = "Human" if i % 2 == 0 else "Assistant"
-                print(f"{role}: {msg.content}")
     except Exception as e:
         logger.error(f"Error during query: {e}", exc_info=True)
         print(f"Error: {e}")

@@ -31,7 +31,6 @@ groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 if not groq_api_key:
     logger.error("GROQ_API_KEY not found.")
     raise ValueError("GROQ_API_KEY not set.")
-logger.info("Configuring Groq LLM in querying.py")
 llm = Groq(model=groq_model, api_key=groq_api_key)
 
 

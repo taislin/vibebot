@@ -34,9 +34,7 @@ embed_model = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 if not groq_api_key:
     logger.error("GROQ_API_KEY not found.")
     raise ValueError("GROQ_API_KEY not set.")
-logger.info("Configuring Groq LLM")
 Settings.llm = Groq(model=groq_model, api_key=groq_api_key)
-logger.info("Configuring HuggingFace Embeddings")
 Settings.embed_model = HuggingFaceEmbedding(model_name=embed_model)
 
 
@@ -194,6 +192,18 @@ async def update_index(directory_path: str = r"data"):
 
     try:
         logger.info("Loading storage context...")
+        vector_store_path = os.path.join(persist_dir, "vector_store.json")
+        if os.path.exists(vector_store_path):
+            try:
+                with open(vector_store_path, "r") as f:
+                    json.load(f)  # Raises JSONDecodeError if invalid
+                logger.debug(f"Validated vector_store.json: {vector_store_path}")
+            except json.JSONDecodeError as e:
+                logger.error(
+                    f"Invalid JSON in {vector_store_path}: {e}, removing file",
+                    exc_info=True,
+                )
+                os.remove(vector_store_path)  # Remove corrupted file
         storage_context = await run_blocking(
             StorageContext.from_defaults, persist_dir=persist_dir
         )
@@ -248,7 +258,7 @@ async def update_index(directory_path: str = r"data"):
             logger.debug(f"Changed files: {changed_files[:10]}")
 
         if changed_files:
-            batch_size = 25
+            batch_size = 10
             for i in range(0, len(changed_files), batch_size):
                 batch_files = changed_files[i : i + batch_size]
                 logger.info(
@@ -285,9 +295,7 @@ async def update_index(directory_path: str = r"data"):
                             run_blocking(
                                 index.refresh_ref_docs,
                                 documents,
-                                update_kwargs={
-                                    "delete_kwargs": {"delete_from_docstore": True}
-                                },
+                                delete_from_docstore=True,  # Pass directly instead of update_kwargs
                             ),
                             timeout=300,
                         )
@@ -302,7 +310,8 @@ async def update_index(directory_path: str = r"data"):
                         return None
                     except Exception as e:
                         logger.error(
-                            f"Error refreshing documents in batch {i // batch_size + 1}: {e}"
+                            f"Error refreshing documents in batch {i // batch_size + 1}: {e}",
+                            exc_info=True,
                         )
                         return None
 

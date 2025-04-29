@@ -146,7 +146,7 @@ async def load_index(directory_path: str = r"data"):
                     os.makedirs(os.path.dirname(meta_path), exist_ok=True)
                     try:
                         with open(meta_path, "w") as f:
-                            f.write(str(os.path.getmtime(file_path)))
+                            f.write(f"{os.path.getmtime(file_path):.6f}")
                     except Exception as e:
                         logger.error(f"Failed to save .meta for {file_path}: {e}")
         except Exception as e:
@@ -168,18 +168,27 @@ async def update_index(directory_path: str = r"data"):
         return None
 
     logger.info("Scanning files for metadata...")
-
     file_metadata = {}
     for root, _, files in os.walk(directory_path):
-        if ".git" in root:
-            continue
+        if ".git" in root or persist_dir in os.path.abspath(root):
+            continue  # Skip .git and storage directories
         for file in files:
-            file_path = os.path.join(root, file)
             if not any(
-                file_path.endswith(ext)
-                for ext in [".exe", ".bin", ".dll", ".bat", ".sh"]
-            ):
-                file_metadata[file_path] = os.path.getmtime(file_path)
+                file.endswith(ext)
+                for ext in [".exe", ".bin", ".dll", ".bat", ".sh", ".meta"]
+            ) and file not in [".gitignore", ".gitattributes"]:
+                file_path = os.path.join(root, file)
+                # Check mtime stability
+                mtime1 = os.path.getmtime(file_path)
+                await asyncio.sleep(0.001)  # Brief delay to detect rapid changes
+                mtime2 = os.path.getmtime(file_path)
+                if abs(mtime1 - mtime2) > 0.01:
+                    logger.warning(
+                        f"Skipping {file_path}: mtime unstable ({mtime1} vs {mtime2})"
+                    )
+                    continue
+                file_metadata[file_path] = mtime1
+                logger.debug(f"Scanned file: {file_path}, mtime: {mtime1}")
     logger.info(f"Found {len(file_metadata)} files.")
 
     try:
@@ -204,7 +213,7 @@ async def update_index(directory_path: str = r"data"):
                     with open(meta_path, "r") as f:
                         meta_mtime_str = f.read().strip()
                     meta_mtime = float(meta_mtime_str)
-                    if abs(file_mtime - meta_mtime) > 1:  # Allow 1-second tolerance
+                    if abs(file_mtime - meta_mtime) > 0.01:  # 10ms tolerance
                         logger.debug(
                             f"File {file_path} changed (file_mtime={file_mtime}, meta_mtime={meta_mtime})"
                         )
@@ -232,7 +241,7 @@ async def update_index(directory_path: str = r"data"):
 
                 logger.info("Loading changed documents...")
                 reader = SimpleDirectoryReader(
-                    input_files=[str(f) for f in batch_files],  # Convert to strings
+                    input_files=[str(f) for f in batch_files],
                     filename_as_id=True,
                     exclude=[
                         "*.exe",
@@ -240,6 +249,7 @@ async def update_index(directory_path: str = r"data"):
                         "*.dll",
                         "*.bat",
                         "*.sh",
+                        "*.meta",
                         ".git/*",
                     ],
                     file_extractor={
@@ -273,13 +283,11 @@ async def update_index(directory_path: str = r"data"):
                         logger.error(
                             f"Document refresh timed out after 300 seconds for batch {i // batch_size + 1}"
                         )
-                        logger.error(f"Files causing timeout: {batch_files}")
                         return None
                     except Exception as e:
                         logger.error(
                             f"Error refreshing documents in batch {i // batch_size + 1}: {e}"
                         )
-                        logger.error(f"Files causing error: {batch_files}")
                         return None
 
                     logger.info("Persisting index...")
@@ -303,7 +311,7 @@ async def update_index(directory_path: str = r"data"):
                         os.makedirs(os.path.dirname(meta_path), exist_ok=True)
                         try:
                             with open(meta_path, "w") as f:
-                                f.write(str(file_metadata[file]))
+                                f.write(f"{file_metadata[file]:.6f}")
                         except Exception as e:
                             logger.error(f"Failed to update .meta for {file}: {e}")
                     logger.info("Metadata updated for batch.")

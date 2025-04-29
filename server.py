@@ -2,6 +2,7 @@ import subprocess
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 
 
 class RequestHandler(BaseHTTPRequestHandler):

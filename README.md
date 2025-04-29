@@ -6,23 +6,23 @@
 
 Vibebot is a Discord bot that leverages **[Retrieval-Augmented Generation (RAG)](https://en.wikipedia.org/wiki/Retrieval-augmented_generation)** to enhance responses from a large language model by referencing an external knowledge base. Built as a fork of [LLM-RAG-Bot](https://github.com/nur-zaman/LLM-RAG-Bot), it uses [Groq](https://groq.com/) for language model inference instead of OpenAI. The bot interacts with users via Discord slash commands and provides a command-line interface (CLI) and web interface for querying the knowledge base.
 
--   [Vibebot](#vibebot)
-    -   [Overview](#overview)
-    -   [Getting Started](#getting-started)
-        -   [Prerequisites](#prerequisites)
-    -   [Bot Usage](#bot-usage)
-        -   [`/query`](#query)
-        -   [`/updatedb`](#updatedb)
-        -   [`/listfunctions`](#listfunctions)
-        -   [`/indexstatus`](#indexstatus)
-        -   [`/pullrepo`](#pullrepo)
-    -   [CLI](#cli)
-        -   [Commands](#commands)
-        -   [Query Modes](#query-modes)
-    -   [Webserver](#webserver)
-        -   [Setup](#setup)
-        -   [Features](#features)
-    -   [Notes](#notes)
+- [Vibebot](#vibebot)
+  - [Overview](#overview)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+  - [Bot Usage](#bot-usage)
+    - [`/query`](#query)
+    - [`/updatedb`](#updatedb)
+    - [`/listfunctions`](#listfunctions)
+    - [`/indexstatus`](#indexstatus)
+    - [`/pullrepo`](#pullrepo)
+  - [CLI](#cli)
+    - [Commands](#commands)
+    - [Query Modes](#query-modes)
+  - [Webserver](#webserver)
+    - [Setup](#setup)
+    - [Features](#features)
+  - [Notes](#notes)
 
 ## Getting Started
 
@@ -43,7 +43,7 @@ Vibebot is a Discord bot that leverages **[Retrieval-Augmented Generation (RAG)]
 2. **Install dependencies**:
 
     ```bash
-    pip install discord-py-interactions interactions.py llama-index llama-index-embeddings-huggingface llama-index-llms-groq numpy python-dotenv PyYAML torch sentence-transformers pynacl setuptools tree-sitter tree-sitter-python tree-sitter-c-sharp sentence_transformers loguru requests
+    pip install discord-py-interactions interactions.py llama-index llama-index-embeddings-huggingface llama-index-llms-groq numpy python-dotenv PyYAML torch sentence-transformers pynacl setuptools tree-sitter tree-sitter-python tree-sitter-c-sharp sentence_transformers loguru requests langchain langchain_community
     ```
 
 3. **Set up environment variables**:

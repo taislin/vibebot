@@ -1,104 +1,98 @@
-from llama_index.core.settings import Settings
-from llama_index.llms.groq import Groq
+from llama_index.core import VectorStoreIndex
+from langchain.memory import ConversationBufferMemory
 from loguru import logger
-import os
+from llama_index.llms.groq import Groq
 from dotenv import load_dotenv
+import os
 
 # Logging
 logger.remove()
 logger.add("bot.log", rotation="1 MB", level="INFO")
 logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 
-# Environment variables
+# Initialize memory
+memory = ConversationBufferMemory(
+    return_messages=True, input_key="input", output_key="output"
+)
+
+# Load environment variables
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
 groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
-# Configure LLM
+# Configure Groq LLM
 if not groq_api_key:
     logger.error("GROQ_API_KEY not found.")
     raise ValueError("GROQ_API_KEY not set.")
-logger.info(f"Configuring Groq LLM in querying.py")
-Settings.llm = Groq(model=groq_model, api_key=groq_api_key)
+logger.info("Configuring Groq LLM in querying.py")
+llm = Groq(model=groq_model, api_key=groq_api_key)
 
 
-async def data_querying(index, query_text: str, mode: str = "general"):
-    logger.info(
-        f"Querying index with Groq LLM ({groq_model}) for: {query_text} (mode: {mode})"
-    )
+async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general"):
+    logger.info(f"Processing query: {text} (mode: {mode})")
     try:
-        # Configure query engine based on mode
-        if mode == "general":
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=5,
-                response_mode="compact",
-            )
-        elif mode == "docs":
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=10,
-                response_mode="tree_summarize",
-                output_cls=dict,  # Structured output
-            )
-        elif mode == "search":
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=8,
-                response_mode="no_text",
-                return_source=True,
-            )
-        elif mode == "debug":
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=5,
-                response_mode="no_text",
-                verbose=True,
-                return_source=True,
-            )
-        elif mode == "generate":
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=2,
-                response_mode="compact",
-                use_generation=True,
-            )
-        else:
-            logger.warning(f"Unknown mode: {mode}, defaulting to general")
-            query_engine = index.as_query_engine(
-                llm=Settings.llm,
-                similarity_top_k=5,
-                response_mode="compact",
-            )
+        # Save input to memory
+        memory.save_context({"input": text}, {"output": ""})
 
-        response = await query_engine.aquery(query_text)
-        logger.info(
-            f"Retrieved {len(response.source_nodes)} documents for query: {query_text}"
+        # Load conversation history
+        history = memory.load_memory_variables({})["history"]
+        context = "\n".join(
+            [
+                f"{'Human' if i % 2 == 0 else 'Assistant'}: {msg.content}"
+                for i, msg in enumerate(history)
+            ]
         )
 
-        # Format response based on mode
-        if mode == "docs":
-            result = {
-                "summary": str(response),
+        # Combine context with current query
+        full_query = f"{context}\nHuman: {text}" if context else text
+
+        # Query the index with context
+        if mode == "general":
+            response = await index.query(full_query, llm=llm, similarity_top_k=3)
+            response_text = str(response)
+            # Save response to memory
+            memory.save_context({"input": text}, {"output": response_text})
+            return {
+                "summary": response_text,
                 "sources": [
                     node.metadata.get("file_path") for node in response.source_nodes
                 ],
             }
-            return result
-        elif mode == "search" or mode == "debug":
-            result = [
+        elif mode == "docs":
+            response = await index.query(full_query, llm=llm, similarity_top_k=5)
+            return [
                 {
                     "file_path": node.metadata.get("file_path"),
-                    "text": (
-                        node.text[:500] + "..." if len(node.text) > 500 else node.text
-                    ),
                     "score": node.score,
+                    "text": node.text,
                 }
                 for node in response.source_nodes
             ]
-            return result
+        elif mode == "search":
+            response = await index.query(full_query, llm=llm, similarity_top_k=10)
+            return [
+                {
+                    "file_path": node.metadata.get("file_path"),
+                    "score": node.score,
+                    "text": node.text,
+                }
+                for node in response.source_nodes
+            ]
+        elif mode == "debug":
+            response = await index.query(full_query, llm=llm, similarity_top_k=3)
+            return {
+                "query": full_query,
+                "response": str(response),
+                "sources": [
+                    node.metadata.get("file_path") for node in response.source_nodes
+                ],
+            }
+        elif mode == "generate":
+            response = await llm.complete(full_query)
+            return response.text
         else:
-            return str(response)
+            logger.error(f"Unknown mode: {mode}")
+            return f"Error: Unknown mode {mode}"
     except Exception as e:
-        logger.error(f"Error querying index: {e}", exc_info=True)
+        logger.error(f"Error processing query: {e}", exc_info=True)
         return f"Error: {e}"

@@ -300,7 +300,9 @@ async def ingest_repo(ctx: SlashContext, repo_url: str):
         files = response.json()
         os.makedirs("data/github", exist_ok=True)
         for file in files:
-            if file["type"] == "file" and file["name"].endswith((".py", ".cs", ".md")):
+            if file["type"] == "file" and file["name"].endswith(
+                (".py", ".cs", ".md", ".yml")
+            ):
                 file_content = requests.get(file["download_url"]).text
                 file_path = f"data/github/{file['name']}"
                 with open(file_path, "w", encoding="utf-8") as f:

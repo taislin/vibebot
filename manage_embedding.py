@@ -192,12 +192,14 @@ async def update_index(directory_path: str = r"data"):
 
     try:
         logger.info("Loading storage context...")
-        vector_store_path = os.path.join(persist_dir, "vector_store.json")
+        vector_store_path = os.path.join(persist_dir, "default__vector_store.json")
         if os.path.exists(vector_store_path):
             try:
                 with open(vector_store_path, "r") as f:
                     json.load(f)  # Raises JSONDecodeError if invalid
-                logger.debug(f"Validated vector_store.json: {vector_store_path}")
+                logger.debug(
+                    f"Validated default__vector_store.json: {vector_store_path}"
+                )
             except json.JSONDecodeError as e:
                 logger.error(
                     f"Invalid JSON in {vector_store_path}: {e}, removing file",
@@ -325,17 +327,17 @@ async def update_index(directory_path: str = r"data"):
                         )
                         # Verify vector_store.json
                         vector_store_path = os.path.join(
-                            persist_dir, "vector_store.json"
+                            persist_dir, "default__vector_store.json"
                         )
                         if os.path.exists(vector_store_path):
                             with open(vector_store_path, "r") as f:
                                 json.load(f)  # Raises JSONDecodeError if invalid
                             logger.info(
-                                "Index persisted and vector_store.json validated."
+                                "Index persisted and default__vector_store.json validated."
                             )
                         else:
                             logger.warning(
-                                "vector_store.json not found after persisting."
+                                "default__vector_store.json not found after persisting."
                             )
                     except asyncio.TimeoutError:
                         logger.error(
@@ -344,7 +346,8 @@ async def update_index(directory_path: str = r"data"):
                         return None
                     except json.JSONDecodeError as e:
                         logger.error(
-                            f"Invalid JSON in vector_store.json: {e}", exc_info=True
+                            f"Invalid JSON in default__vector_store.json: {e}",
+                            exc_info=True,
                         )
                         return None
                     logger.info("Updating .meta files for batch...")

@@ -3,6 +3,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from loguru import logger
 from llama_index.llms.groq import Groq
+from llama_index.core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import os
 
@@ -31,6 +32,20 @@ if not groq_api_key:
     raise ValueError("GROQ_API_KEY not set.")
 llm = Groq(model=groq_model, api_key=groq_api_key)
 
+# Custom prompt template for general mode
+GENERAL_PROMPT_TEMPLATE = PromptTemplate(
+    """You are an assistant answering questions about a codebase based on a knowledge base. Prioritize information from 'data/learned_data/learned_info.txt' when answering questions about the codebase's name, purpose, or description. Use the provided context to generate a concise and accurate response.
+
+Context:
+{context_str}
+
+Query:
+{query_str}
+
+Answer:
+"""
+)
+
 
 async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general"):
     logger.info(f"Processing query: {text} (mode: {mode})")
@@ -51,10 +66,12 @@ async def data_querying(index: VectorStoreIndex, text: str, mode: str = "general
         full_query = f"{context}\nHuman: {text}" if context else text
 
         # Create query engine
-        query_engine = index.as_query_engine(llm=llm, similarity_top_k=3)
-
-        # Query the index with context
         if mode == "general":
+            query_engine = index.as_query_engine(
+                llm=llm,
+                similarity_top_k=10,
+                text_qa_template=GENERAL_PROMPT_TEMPLATE,
+            )
             response = await query_engine.aquery(full_query)
             response_text = str(response)
             # Save response to memory

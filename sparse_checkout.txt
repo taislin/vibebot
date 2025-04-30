@@ -1,0 +1,14 @@
+Content.Server/**/*.cs
+Content.Shared/**/*.cs
+Content.Client/**/*.cs
+Content.MapRenderer/**/*.cs
+Resources/Prototypes/**/*.yml
+Wiki/*.md
+*.md
+mapGeneration.py
+mapDeserializer.py
+SpaceStation14.sln
+SpaceStation14.sln.DotSettings
+!bin/
+!obj/
+!RobustToolbox/

@@ -1,4 +1,4 @@
-# LLM-RAG-Bot
+# Vibebot
 
 ![vibebot](vibebot.gif)
 

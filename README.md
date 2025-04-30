@@ -34,7 +34,7 @@ A Discord bot that uses retrieval-augmented generation (RAG) to query and analyz
 2. **Install Dependencies**:
 
     ```bash
-    pip install interactions loguru langchain langchain-huggingface langchain-groq langchain-pinecone pinecone-client groq gitpython tree-sitter tree-sitter-c-sharp
+    pip install interactions loguru langchain langchain-huggingface langchain-groq langchain-pinecone pinecone groq gitpython tree-sitter tree-sitter-c-sharp
     ```
 
 3. **Create `.env` File**:

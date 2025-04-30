@@ -8,10 +8,12 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 from dotenv import load_dotenv
 from multiprocessing import Pool
+import uuid
 from interactions import (
     Client,
     Intents,
@@ -23,8 +25,6 @@ from interactions import (
     Embed,
 )
 from loguru import logger
-import importlib
-from groq import Groq
 
 # --- Setup Logging ---
 logger.remove()
@@ -88,8 +88,8 @@ def chunk_file(file_path):
             in ["class_declaration", "method_declaration", "property_declaration"]
         ]
         if not chunks:
-            step = 800
-            overlap = 200
+            step = 500  # Smaller chunks for metadata
+            overlap = 100
             chunks = [code[i : i + step] for i in range(0, len(code), step - overlap)]
         return [(file_path, chunk) for chunk in chunks]
     except Exception as e:
@@ -99,7 +99,7 @@ def chunk_file(file_path):
 
 def update_index(repo, files, index, model):
     try:
-        repo.git.pull()
+        repo.git.pull("origin", "master")  # Use correct branch
         new_files = [
             f
             for pattern in ["**/*.cs", "**/*.csproj", "**/*.md", "**/*.yml", "**/*.py"]
@@ -114,7 +114,7 @@ def update_index(repo, files, index, model):
                 results = pool.map(chunk_file, new_files)
             code_chunks = [chunk for result in results for _, chunk in result]
             metadata = [
-                {"file": file, "chunk": chunk}
+                {"file": file, "chunk": chunk[:500], "full_chunk": chunk}
                 for result in results
                 for file, chunk in result
             ]
@@ -123,12 +123,22 @@ def update_index(repo, files, index, model):
                 (
                     str(i),
                     embeddings[i],
-                    {"chunk": code_chunks[i], "file": metadata[i]["file"]},
+                    {"chunk": code_chunks[i][:500], "file": metadata[i]["file"]},
                 )
                 for i in range(len(embeddings))
             ]
             index.upsert(vectors=batch_vectors)
             logger.info(f"Updated index with {len(new_files)} new files")
+            # Update metadata.json
+            metadata_file = "metadata.json"
+            if os.path.exists(metadata_file):
+                with open(metadata_file, "r") as f:
+                    existing_metadata = json.load(f)
+            else:
+                existing_metadata = []
+            existing_metadata.extend(metadata)
+            with open(metadata_file, "w") as f:
+                json.dump(existing_metadata, f)
             return new_files
         return []
     except Exception as e:
@@ -182,38 +192,56 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         vector_store = PineconeVectorStore(
             index=index, embedding=model, text_key="chunk"
         )
-        retriever = vector_store.as_retriever(search_kwargs={"k": 10})
+        retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
         # Retrieve documents
         docs = retriever.invoke(input_text)
-        context = "\n".join([doc.page_content for doc in docs])
+        context = "\n".join([doc.page_content[:500] for doc in docs])[:2000]
+        logger.info(f"Context size: {len(context)} characters")
 
-        # Query Groq LLM with history
-        client = Groq(api_key=groq_api_key)
-        session_id = str(ctx.author.id)
-        chain = RunnableWithMessageHistory(
-            runnable=client.chat.completions,
+        # Initialize ChatGroq LLM with explicit base URL
+        llm = ChatGroq(
+            groq_api_key=groq_api_key,
+            model_name=groq_model,
+            base_url="https://api.groq.com",  # Correct base URL
+        )
+
+        # Create a prompt template
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are an expert assistant for analyzing a software codebase. Provide concise, accurate answers based on the provided context.",
+                ),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "Context: {context}\n\nQuestion: {input_text}"),
+            ]
+        )
+
+        # Create a chain
+        chain = prompt | llm
+
+        # Wrap with history
+        chain_with_history = RunnableWithMessageHistory(
+            runnable=chain,
             get_session_history=get_session_history,
-            input_messages_key="messages",
+            input_messages_key="input_text",
             history_messages_key="history",
         )
-        response = chain.invoke(
-            {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are an expert assistant for analyzing a software codebase. Provide concise, accurate answers based on the provided context.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Context: {context}\n\nQuestion: {input_text}",
-                    },
-                ],
-                "model": groq_model,
-            },
+
+        # Limit history
+        session_id = str(ctx.author.id)
+        history = get_session_history(session_id)
+        if len(history.messages) > 10:
+            history.messages = history.messages[-10:]
+        logger.info(f"History size: {len(history.messages)} messages")
+
+        # Query with history
+        response = chain_with_history.invoke(
+            {"context": context, "input_text": input_text},
             config={"configurable": {"session_id": session_id}},
         )
-        response_text = response.choices[0].message.content
+        response_text = response.content
 
         # Create embed
         embed = Embed(
@@ -230,26 +258,22 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             )
 
         # Add conversation history
-        history = get_session_history(session_id).messages
-        if history:
-            history_text = "\n".join(
-                f"{'Human' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
-                for msg in history
+        history_text = "\n".join(
+            f"{'Human' if msg.type == 'human' else 'Assistant'}: {msg.content[:200]}"
+            for msg in history.messages
+        )[:2000]
+        history_chunks = split_text(history_text)
+        for i, chunk in enumerate(history_chunks, 1):
+            embed.add_field(
+                name=f"History (Part {i})" if len(history_chunks) > 1 else "History",
+                value=chunk,
+                inline=False,
             )
-            history_chunks = split_text(history_text)
-            for i, chunk in enumerate(history_chunks, 1):
-                embed.add_field(
-                    name=(
-                        f"History (Part {i})" if len(history_chunks) > 1 else "History"
-                    ),
-                    value=chunk,
-                    inline=False,
-                )
 
         await ctx.send(embeds=embed)
     except Exception as e:
-        logger.error(f"Error in query command: {e}", exc_info=True)
-        await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
+        logger.error(f"Error in query command: {str(e)}", exc_info=True)
+        await ctx.send(content=f"An error occurred: {str(e)}", ephemeral=True)
 
 
 # --- Slash Command: Update Database ---
@@ -298,7 +322,9 @@ async def pullrepo_cmd(ctx: SlashContext):
         import subprocess
 
         local_path = "data"
-        subprocess.run(["git", "-C", local_path, "pull", "origin", "main"], check=True)
+        subprocess.run(
+            ["git", "-C", local_path, "pull", "origin", "master"], check=True
+        )  # Use master
         repo = Repo(local_path)
         files = [
             f
@@ -362,6 +388,57 @@ async def indexstatus_cmd(ctx: SlashContext):
         await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
 
 
+# --- Slash Command: Learn ---
+@slash_command(
+    name="learn",
+    description="Teach the bot new knowledge",
+    scopes=[int(guild_id)] if guild_id else None,
+    options=[
+        SlashCommandOption(
+            name="knowledge",
+            description="The knowledge to learn (e.g., 'Your name is Vibebot')",
+            type=OptionType.STRING,
+            required=True,
+        ),
+    ],
+)
+async def learn_cmd(ctx: SlashContext, knowledge: str):
+    await ctx.defer()
+    try:
+        logger.info(f"Learning new knowledge: {knowledge}")
+        model = HuggingFaceEmbeddings(
+            model_name=embed_model, model_kwargs={"device": device}
+        )
+        pc = Pinecone(api_key=pinecone_api_key)
+        index = pc.Index(pinecone_index_name)
+        knowledge_id = str(uuid.uuid4())
+        embedding = model.embed_documents([knowledge])[0]
+        metadata = {
+            "chunk": knowledge[:500],
+            "file": f"learned_knowledge/{knowledge_id}.txt",
+        }
+        index.upsert(vectors=[(knowledge_id, embedding, metadata)])
+        metadata_entry = {
+            "file": metadata["file"],
+            "chunk": metadata["chunk"],
+            "full_chunk": knowledge,
+        }
+        metadata_file = "metadata.json"
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as f:
+                existing_metadata = json.load(f)
+        else:
+            existing_metadata = []
+        existing_metadata.append(metadata_entry)
+        with open(metadata_file, "w") as f:
+            json.dump(existing_metadata, f)
+        await ctx.send(f"Learned new knowledge: '{knowledge}'")
+        logger.info(f"Successfully learned knowledge with ID: {knowledge_id}")
+    except Exception as e:
+        logger.error(f"Error in learn command: {e}", exc_info=True)
+        await ctx.send(content=f"An error occurred: {e}", ephemeral=True)
+
+
 # --- Main Function ---
 def main():
     # Clone repo (sparse checkout)
@@ -377,56 +454,71 @@ def main():
             dst.write(src.read())
         repo.git.remote("add", "origin", repo_url)
         repo.git.fetch("origin")
-        repo.git.checkout("main")
+        repo.git.checkout("master")
+        repo.git.branch("--set-upstream-to=origin/master", "master")
+    else:
+        repo = Repo(local_path)
 
-    # Index files
-    include_patterns = ["**/*.cs", "**/*.csproj", "**/*.md", "**/*.yml", "**/*.py"]
-    files = [
-        f
-        for pattern in include_patterns
-        for f in glob.glob(f"data/{pattern}", recursive=True)
-        if "/bin/" not in f and "/obj/" not in f and "/RobustToolbox/" not in f
-    ]
-    logger.info(f"Total files: {len(files)}")
-
-    with Pool(processes=4) as pool:
-        results = pool.map(chunk_file, files)
-
-    code_chunks = [chunk for result in results for _, chunk in result]
-    metadata = [
-        {"file": file, "chunk": chunk} for result in results for file, chunk in result
-    ]
-    logger.info(f"Total chunks: {len(code_chunks)}")
-
-    with open("metadata.json", "w") as f:
-        json.dump(metadata, f)
-
+    # Initialize Pinecone and embedding model
     model = HuggingFaceEmbeddings(
         model_name=embed_model, model_kwargs={"device": device}
     )
-    embeddings = model.embed_documents(code_chunks)
-
     pc = Pinecone(api_key=pinecone_api_key)
+
+    # Check if index exists
     if pinecone_index_name not in pc.list_indexes().names():
+        include_patterns = ["**/*.cs", "**/*.csproj", "**/*.md", "**/*.yml", "**/*.py"]
+        files = [
+            f
+            for pattern in include_patterns
+            for f in glob.glob(f"data/{pattern}", recursive=True)
+            if "/bin/" not in f and "/obj/" not in f and "/RobustToolbox/" not in f
+        ]
+        logger.info(f"Total files: {len(files)}")
+        with Pool(processes=4) as pool:
+            results = pool.map(chunk_file, files)
+        code_chunks = [chunk for result in results for _, chunk in result]
+        metadata = [
+            {"file": file, "chunk": chunk[:500], "full_chunk": chunk}
+            for result in results
+            for file, chunk in result
+        ]
+        logger.info(f"Total chunks: {len(code_chunks)}")
+        with open("metadata.json", "w") as f:
+            json.dump(metadata, f)
+        embeddings = model.embed_documents(code_chunks)
         pc.create_index(
             name=pinecone_index_name,
             dimension=len(embeddings[0]),
             spec=ServerlessSpec(cloud="aws", region="us-east-1"),
         )
-    index = pc.Index(pinecone_index_name)
-
-    batch_size = 100
-    for i in range(0, len(embeddings), batch_size):
-        batch_vectors = [
-            (
-                str(j),
-                embeddings[j],
-                {"chunk": code_chunks[j], "file": metadata[j]["file"]},
-            )
-            for j in range(i, min(i + batch_size, len(embeddings)))
+        index = pc.Index(pinecone_index_name)
+        batch_size = 100
+        for i in range(0, len(embeddings), batch_size):
+            batch_vectors = [
+                (
+                    str(j),
+                    embeddings[j],
+                    {"chunk": code_chunks[j][:500], "file": metadata[j]["file"]},
+                )
+                for j in range(i, min(i + batch_size, len(embeddings)))
+            ]
+            index.upsert(vectors=batch_vectors)
+            logger.info(f"Upserted batch {i // batch_size + 1}")
+    else:
+        include_patterns = ["**/*.cs", "**/*.csproj", "**/*.md", "**/*.yml", "**/*.py"]
+        files = [
+            f
+            for pattern in include_patterns
+            for f in glob.glob(f"data/{pattern}", recursive=True)
+            if "/bin/" not in f and "/obj/" not in f and "/RobustToolbox/" not in f
         ]
-        index.upsert(vectors=batch_vectors)
-        logger.info(f"Upserted batch {i // batch_size + 1}")
+        index = pc.Index(pinecone_index_name)
+        updated_files = update_index(repo, files, index, model)
+        if updated_files is not None:
+            logger.info(f"Updated {len(updated_files)} files")
+        else:
+            logger.info("No updates needed or error occurred")
 
     print("Starting bot...")
     bot.start()

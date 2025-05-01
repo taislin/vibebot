@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.DEBUG)
 # --- Setup ---
 load_dotenv()
 device = "cuda" if os.getenv("USE_CUDA", "false").lower() == "true" else "cpu"
-print(f"Using device: {device}")
 
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
 pinecone_index_name = os.getenv("PINECONE_INDEX_NAME")
@@ -110,7 +109,7 @@ def main():
             )
             for j in range(i, min(i + batch_size, len(embeddings)))
         ]
-        index.upsert(vectors=batch_vectors)
+        index.upsert(vectors=batch_vectors, namespace="code")
 
     print(f"Upserted batch {i // batch_size + 1}")
 

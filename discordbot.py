@@ -14,6 +14,10 @@ from pinecone import Pinecone, ServerlessSpec
 from dotenv import load_dotenv
 from multiprocessing import Pool
 import uuid
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
+
 from interactions import (
     Client,
     Intents,
@@ -189,10 +193,34 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         )
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(pinecone_index_name)
-        vector_store = PineconeVectorStore(
-            index=index, embedding=model, text_key="chunk"
+
+        # Load metadata for BM25
+        with open("metadata.json", "r") as f:
+            raw_docs = json.load(f)
+
+        bm25_docs = [
+            Document(page_content=doc["chunk"], metadata={"source": doc["file"]})
+            for doc in raw_docs
+        ]
+        bm25_retriever = BM25Retriever.from_documents(bm25_docs)
+        bm25_retriever.k = 2
+
+        # Dense retrievers from Pinecone namespaces
+        from langchain_pinecone import PineconeVectorStore
+
+        embedding = HuggingFaceEmbeddings(model_name=embed_model)
+        dense_retrievers = []
+        for ns in ["learned", "code", "qa_history", ""]:
+            vs = PineconeVectorStore(
+                index=index, embedding=embedding, text_key="chunk", namespace=ns
+            )
+            dense_retrievers.append(vs.as_retriever(search_kwargs={"k": 2}))
+
+        # Combine dense + sparse retrievers
+        retriever = EnsembleRetriever(
+            retrievers=dense_retrievers + [bm25_retriever],
+            weights=[1.0] * (len(dense_retrievers) + 1),
         )
-        retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
         # Retrieve documents
         docs = retriever.invoke(input_text)
@@ -245,8 +273,14 @@ You can also attempt to match the tone of the user interacting with you.
             {"context": context, "input_text": input_text},
             config={"configurable": {"session_id": session_id}},
         )
-        response_text = response.content
-
+        response_text = response.choices[0].message.content
+        qa_text = f"Q: {input_text}\\nA: {response}"
+        vector = embedding.embed_documents([qa_text])[0]
+        index.upsert(
+            vectors=[(str(uuid.uuid4()), vector)],
+            namespace="qa_history",
+            metadata={"chunk": qa_text},
+        )
         # Create embed
         embed = Embed(
             title="Query Response",
@@ -408,7 +442,10 @@ async def learn_cmd(ctx: SlashContext, knowledge: str):
             "chunk": knowledge[:500],
             "file": f"learned_knowledge/{knowledge_id}.txt",
         }
-        index.upsert(vectors=[(knowledge_id, embedding, metadata)])
+        index.upsert(
+            vectors=[(knowledge_id, embedding, metadata)],
+            namespace="learned",
+        )
         metadata_entry = {
             "file": metadata["file"],
             "chunk": metadata["chunk"],
@@ -494,7 +531,7 @@ def main():
                 )
                 for j in range(i, min(i + batch_size, len(embeddings)))
             ]
-            index.upsert(vectors=batch_vectors)
+            index.upsert(vectors=batch_vectors, namespace="code")
             logger.info(f"Upserted batch {i // batch_size + 1}")
     else:
         include_patterns = ["**/*.cs", "**/*.csproj", "**/*.md", "**/*.yml", "**/*.py"]

@@ -204,13 +204,6 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             groq_api_key=groq_api_key,
             model_name=groq_model,
             base_url="https://api.groq.com",  # Correct base URL
-            model_kwargs={
-                "prompts": """
-You are Ungacode bot, a helpful and slightly witty assistant trained on a space station 14 forked codebase called Civ14. 
-Speak informally, like a programmer explaining things to another programmer. Use humor where appropriate, but never be sarcastic or rude.
-You can also attempt to match the tone of the user interacting with you.
-""",
-            },
         )
 
         # Create a prompt template

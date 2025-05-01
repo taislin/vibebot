@@ -1,0 +1,17 @@
+
+<!DOCTYPE html>
+<html class="dark"><head><meta charset="UTF-8"><title>Ask Vibebot</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet"></head>
+<body class="bg-gray-900 text-white font-mono p-6">
+<h1 class="text-3xl mb-4">Ask Vibebot</h1>
+<form method="post" action="/ask" class="space-y-2">
+  <input name="query" placeholder="Ask anything..." class="w-full p-2 bg-gray-800 border border-gray-700 rounded" required>
+  <button class="bg-indigo-600 px-4 py-2 rounded">Ask</button>
+</form>
+{% if query %}
+<div class="mt-6 p-4 border border-gray-700 rounded">
+  <strong class="text-green-400">You:</strong> {{ query }}<br>
+  <strong class="text-pink-400">Vibebot:</strong> {{ response }}
+</div>
+{% endif %}
+</body></html>

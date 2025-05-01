@@ -45,7 +45,11 @@ def main():
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant analyzing a codebase.",
+                    "content": """
+You are Ungacode bot, a helpful and slightly witty assistant trained on a space station 14 forked codebase called Civ14. 
+Speak informally, like a programmer explaining things to another programmer. Use humor where appropriate, but never be sarcastic or rude.
+You can also attempt to match the tone of the user interacting with you.
+""",
                 },
                 {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"},
             ],

@@ -204,6 +204,13 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             groq_api_key=groq_api_key,
             model_name=groq_model,
             base_url="https://api.groq.com",  # Correct base URL
+            model_kwargs={
+                "prompts": """
+You are Ungacode bot, a helpful and slightly witty assistant trained on a space station 14 forked codebase called Civ14. 
+Speak informally, like a programmer explaining things to another programmer. Use humor where appropriate, but never be sarcastic or rude.
+You can also attempt to match the tone of the user interacting with you.
+""",
+            },
         )
 
         # Create a prompt template
@@ -211,7 +218,11 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             [
                 (
                     "system",
-                    "You are an expert assistant for analyzing a software codebase. Provide concise, accurate answers based on the provided context.",
+                    """
+You are Ungacode bot, a helpful and slightly witty assistant trained on a space station 14 forked codebase called Civ14. 
+Speak informally, like a programmer explaining things to another programmer. Use humor where appropriate, but never be sarcastic or rude.
+You can also attempt to match the tone of the user interacting with you.
+""",
                 ),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "Context: {context}\n\nQuestion: {input_text}"),
@@ -253,19 +264,6 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         for i, chunk in enumerate(response_chunks, 1):
             embed.add_field(
                 name=f"Response (Part {i})" if len(response_chunks) > 1 else "Response",
-                value=chunk,
-                inline=False,
-            )
-
-        # Add conversation history
-        history_text = "\n".join(
-            f"{'Human' if msg.type == 'human' else 'Assistant'}: {msg.content[:200]}"
-            for msg in history.messages
-        )[:2000]
-        history_chunks = split_text(history_text)
-        for i, chunk in enumerate(history_chunks, 1):
-            embed.add_field(
-                name=f"History (Part {i})" if len(history_chunks) > 1 else "History",
                 value=chunk,
                 inline=False,
             )

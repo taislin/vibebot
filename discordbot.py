@@ -17,6 +17,7 @@ import uuid
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
+from langchain_core.runnables import Runnable
 
 from interactions import (
     Client,
@@ -63,6 +64,31 @@ CSHARP_LANGUAGE = Language(csharp.language())
 
 # --- Chat History ---
 chat_histories = {}  # Store per-user history
+
+
+class SafeRetriever(Runnable):
+    def __init__(self, retriever, namespace):
+        self.retriever = retriever
+        self.namespace = namespace
+
+    def invoke(self, input, config=None):
+        try:
+            docs = self.retriever.invoke(input, config=config)
+            # Filter out documents with missing metadata
+            valid_docs = [
+                doc
+                for doc in docs
+                if hasattr(doc, "metadata") and doc.metadata is not None
+            ]
+            if not valid_docs:
+                logger.warning(
+                    f"No valid documents retrieved for namespace: {self.namespace}"
+                )
+                return [Document(page_content="", metadata={"file": "unknown"})]
+            return valid_docs
+        except Exception as e:
+            logger.error(f"Error in retriever for namespace {self.namespace}: {e}")
+            return [Document(page_content="", metadata={"file": "unknown"})]
 
 
 def get_session_history(session_id: str):
@@ -208,7 +234,11 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             vs = PineconeVectorStore(
                 index=index, embedding=embedding, text_key="chunk", namespace=ns
             )
-            dense_retrievers.append(vs.as_retriever(search_kwargs={"k": 2}))
+            # Wrap the Pinecone retriever in SafeRetriever
+            safe_retriever = SafeRetriever(
+                vs.as_retriever(search_kwargs={"k": 2}), namespace=ns
+            )
+            dense_retrievers.append(safe_retriever)
 
         # Combine dense + sparse retrievers
         retriever = EnsembleRetriever(
@@ -218,14 +248,16 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
 
         # Retrieve documents
         docs = retriever.invoke(input_text)
-        context = "\n".join([doc.page_content[:500] for doc in docs])[:2000]
+        context = "\n".join(
+            [doc.page_content[:500] for doc in docs if doc.page_content]
+        )[:2000]
         logger.info(f"Context size: {len(context)} characters")
 
         # Initialize ChatGroq LLM with explicit base URL
         llm = ChatGroq(
             groq_api_key=groq_api_key,
             model_name=groq_model,
-            base_url="https://api.groq.com",  # Correct base URL
+            base_url="https://api.groq.com",
         )
 
         # Create a prompt template
@@ -267,14 +299,19 @@ You can also attempt to match the tone of the user interacting with you.
             {"context": context, "input_text": input_text},
             config={"configurable": {"session_id": session_id}},
         )
-        response_text = response.choices[0].message.content
+        response_text = response.content  # Updated to use .content instead of .choices
         qa_id = str(uuid.uuid4())
         qa_text = f"Q: {input_text}\\nA: {response_text}"
         vector = embedding.embed_documents([qa_text])[0]
         index.upsert(
-            vectors=[(qa_id, vector)],
+            vectors=[
+                (
+                    qa_id,
+                    vector,
+                    {"chunk": qa_text[:500], "file": f"qa_history/{qa_id}.txt"},
+                )
+            ],
             namespace="qa_history",
-            metadata={"chunk": qa_text[:500], "file": f"qa_history/{qa_id}.txt"},
         )
         # Create embed
         embed = Embed(

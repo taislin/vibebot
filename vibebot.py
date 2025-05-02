@@ -125,10 +125,16 @@ You can also attempt to match the tone of the user interacting with you.
             response_text = response.choices[0].message.content
             qa_text = f"Q: {query}\\nA: {response_text}"
             vector = embedding.embed_documents([qa_text])[0]
+            qa_id = str(uuid.uuid4())
             index.upsert(
-                vectors=[(str(uuid.uuid4()), vector)],
+                vectors=[
+                    (
+                        qa_id,
+                        vector,
+                        {"chunk": qa_text[:500], "file": f"qa_history/{qa_id}.txt"},
+                    )
+                ],
                 namespace="qa_history",
-                metadata={"chunk": qa_text},
             )
             print(Fore.GREEN, "Response:", Fore.YELLOW, response_text, Fore.RESET)
 

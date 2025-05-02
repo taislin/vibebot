@@ -268,12 +268,13 @@ You can also attempt to match the tone of the user interacting with you.
             config={"configurable": {"session_id": session_id}},
         )
         response_text = response.choices[0].message.content
+        qa_id = str(uuid.uuid4())
         qa_text = f"Q: {input_text}\\nA: {response_text}"
         vector = embedding.embed_documents([qa_text])[0]
         index.upsert(
-            vectors=[(str(uuid.uuid4()), vector)],
+            vectors=[(qa_id, vector)],
             namespace="qa_history",
-            metadata={"chunk": qa_text},
+            metadata={"chunk": qa_text[:500], "file": f"qa_history/{qa_id}.txt"},
         )
         # Create embed
         embed = Embed(

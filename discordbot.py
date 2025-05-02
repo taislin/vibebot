@@ -188,9 +188,6 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
     try:
         logger.info(f"Processing query: {input_text} (mode: {mode})")
         # Load vector store
-        model = HuggingFaceEmbeddings(
-            model_name=embed_model, model_kwargs={"device": device}
-        )
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(pinecone_index_name)
 
@@ -204,9 +201,6 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         ]
         bm25_retriever = BM25Retriever.from_documents(bm25_docs)
         bm25_retriever.k = 2
-
-        # Dense retrievers from Pinecone namespaces
-        from langchain_pinecone import PineconeVectorStore
 
         embedding = HuggingFaceEmbeddings(model_name=embed_model)
         dense_retrievers = []
@@ -274,7 +268,7 @@ You can also attempt to match the tone of the user interacting with you.
             config={"configurable": {"session_id": session_id}},
         )
         response_text = response.choices[0].message.content
-        qa_text = f"Q: {input_text}\\nA: {response}"
+        qa_text = f"Q: {input_text}\\nA: {response_text}"
         vector = embedding.embed_documents([qa_text])[0]
         index.upsert(
             vectors=[(str(uuid.uuid4()), vector)],

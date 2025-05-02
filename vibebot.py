@@ -2,6 +2,9 @@ import os
 from groq import Groq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
+from langchain_core.documents import Document
 from pinecone import Pinecone
 from dotenv import load_dotenv
 import logging
@@ -33,8 +36,31 @@ def main():
         print(Fore.RED, "Index not found, run updater first!", Fore.RESET)
         return
     index = pc.Index(pinecone_index_name)
-    vector_store = PineconeVectorStore(index=index, embedding=model, text_key="chunk")
-    retriever = vector_store.as_retriever()
+
+    # Load metadata for BM25
+    with open("metadata.json", "r") as f:
+        raw_docs = json.load(f)
+
+    bm25_docs = [
+        Document(page_content=doc["chunk"], metadata={"source": doc["file"]})
+        for doc in raw_docs
+    ]
+    bm25_retriever = BM25Retriever.from_documents(bm25_docs)
+    bm25_retriever.k = 2
+
+    embedding = HuggingFaceEmbeddings(model_name=embed_model)
+    dense_retrievers = []
+    for ns in ["learned", "code", "qa_history", ""]:
+        vs = PineconeVectorStore(
+            index=index, embedding=embedding, text_key="chunk", namespace=ns
+        )
+        dense_retrievers.append(vs.as_retriever(search_kwargs={"k": 2}))
+
+    # Combine dense + sparse retrievers
+    retriever = EnsembleRetriever(
+        retrievers=dense_retrievers + [bm25_retriever],
+        weights=[1.0] * (len(dense_retrievers) + 1),
+    )
     client = Groq(api_key=groq_api_key)
 
     while True:
@@ -46,9 +72,7 @@ def main():
         query = input(Fore.GREEN + "Input: " + Fore.RESET)
         if query.strip().lower() == "exit":
             break
-        # Retrieve relevant documents
-        docs = retriever.invoke(query)
-        context = "\n".join([doc.page_content for doc in docs])
+
         # Call Groq API directly
         response = client.chat.completions.create(
             model=groq_model,
@@ -61,7 +85,7 @@ Speak informally, like a programmer explaining things to another programmer. Use
 You can also attempt to match the tone of the user interacting with you.
 """,
                 },
-                {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"},
+                {"role": "user", "content": f"Question: {query}"},
             ],
         )
         if query.lower().startswith("learn:"):

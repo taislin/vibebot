@@ -97,11 +97,31 @@ def get_session_history(session_id: str):
     return chat_histories[session_id]
 
 
+MAX_CHARS = 4096  # max characters for embed description
+
+
 # --- Helper: Split Long Text ---
-def split_text(text: str, max_length: int = 1024) -> list:
+def split_text(
+    text: str, query: str, mode: str, max_length: int = MAX_CHARS
+) -> list[Embed]:
     if not isinstance(text, str):
         text = str(text)
-    return [text[i : i + max_length] for i in range(0, len(text), max_length)]
+    chunks = [text[i : i + max_length] for i in range(0, len(text), max_length)]
+    embeds = []
+    embedquery = Embed(
+        title="Query:",
+        description=f"**Input**: {query[:4000]}\n**Mode**: {mode}",
+        color=0x00FF00,
+    )
+    embeds.append(embedquery)
+    for i, chunk in enumerate(chunks):
+        embed = Embed(
+            title=f"Response: (Part {i+1})" if len(chunks) > 1 else "Response",
+            description=chunk,
+            color=0x5865F2,
+        )
+        embeds.append(embed)
+    return embeds
 
 
 # --- Code Parsing and Indexing ---
@@ -314,20 +334,10 @@ You can also attempt to match the tone of the user interacting with you.
             namespace="qa_history",
         )
         # Create embed
-        embed = Embed(
-            title="Query Response",
-            description=f"**Input**: {input_text[:1000]}\n**Mode**: {mode}",
-            color=0x00FF00,
-        )
-        response_chunks = split_text(response_text)
-        for i, chunk in enumerate(response_chunks, 1):
-            embed.add_field(
-                name=f"Response (Part {i})" if len(response_chunks) > 1 else "Response",
-                value=chunk,
-                inline=False,
-            )
 
-        await ctx.send(embeds=embed)
+        response_chunks = split_text(response_text, input_text, mode)
+        for embed in response_chunks:
+            await ctx.send(embeds=[embed])
     except Exception as e:
         logger.error(f"Error in query command: {str(e)}", exc_info=True)
         await ctx.send(content=f"An error occurred: {str(e)}", ephemeral=True)

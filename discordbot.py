@@ -116,7 +116,7 @@ def split_text(
     embeds.append(embedquery)
     for i, chunk in enumerate(chunks):
         embed = Embed(
-            title=f"Response: (Part {i+1})" if len(chunks) > 1 else "Response",
+            title=f"Response: (Part {i+1})" if len(chunks) > 1 else "Response:",
             description=chunk,
             color=0x5865F2,
         )

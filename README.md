@@ -113,6 +113,13 @@ All commands are Discord slash commands, available in the specified guild (`GUIL
 4. Teach the bot new facts with `/learn` (e.g., `/learn The codebase is Civ14`).
 5. Update the index with `/updatedb` or `/pullrepo` when the codebase changes.
 
+## Dashboard
+
+You can also use the web-based dashboard. To launch, do:
+
+1. `uvicorn dashboard:app --reload`
+2. Open in browser: http://localhost:8000
+
 ## Project Structure
 
 -   `discordbot.py`: Main script for indexing and running the Discord bot.

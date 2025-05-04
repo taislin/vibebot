@@ -7,12 +7,10 @@ from langchain.retrievers import EnsembleRetriever
 from langchain_core.documents import Document
 from pinecone import Pinecone
 from dotenv import load_dotenv
-import logging
 import uuid
 import json
 from colorama import Fore, Back, Style
 
-# logging.basicConfig(level=logging.DEBUG)
 # --- Setup ---
 load_dotenv()
 print(
@@ -25,6 +23,13 @@ pinecone_index_name = os.getenv("PINECONE_INDEX_NAME")
 groq_api_key = os.getenv("GROQ_API_KEY")
 groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 embed_model = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+
+from loguru import logger
+
+# --- Setup Logging ---
+logger.remove()
+logger.add("vibebot.log", rotation="1 MB", level="INFO")
+logger.add(sink=lambda msg: print(msg, end=""), level="INFO")
 
 
 def main():
@@ -72,7 +77,11 @@ def main():
         query = input(Fore.GREEN + "Input: " + Fore.RESET)
         if query.strip().lower() == "exit":
             break
-
+        docs = retriever.invoke(query)
+        context = "\n".join(
+            [doc.page_content[:500] for doc in docs if doc.page_content]
+        )[:2000]
+        logger.info(f"Context size: {len(context)} characters")
         # Call Groq API directly
         response = client.chat.completions.create(
             model=groq_model,
@@ -85,7 +94,7 @@ Speak informally, like a programmer explaining things to another programmer. Use
 You can also attempt to match the tone of the user interacting with you.
 """,
                 },
-                {"role": "user", "content": f"Question: {query}"},
+                {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"},
             ],
         )
         if query.lower().startswith("learn:"):

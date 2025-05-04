@@ -98,7 +98,7 @@ def get_session_history(session_id: str):
 
 
 # --- Helper: Split Long Text ---
-def split_text(text: str, max_length: int = 4000) -> list:
+def split_text(text: str, max_length: int = 1024) -> list:
     if not isinstance(text, str):
         text = str(text)
     return [text[i : i + max_length] for i in range(0, len(text), max_length)]

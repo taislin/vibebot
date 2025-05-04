@@ -316,16 +316,9 @@ You can also attempt to match the tone of the user interacting with you.
         # Create embed
         embed = Embed(
             title="Query Response",
-            description=f"**Input**: {input_text[:1000]}\n**Mode**: {mode}",
+            description=f"**Input**: {input_text[:512]}\n**Mode**: {mode}\n**Reply**:{response_text[:4000]}",
             color=0x00FF00,
         )
-        response_chunks = split_text(response_text)
-        for i, chunk in enumerate(response_chunks, 1):
-            embed.add_field(
-                name=f"Response (Part {i})" if len(response_chunks) > 1 else "Response",
-                value=chunk,
-                inline=False,
-            )
 
         await ctx.send(embeds=embed)
     except Exception as e:

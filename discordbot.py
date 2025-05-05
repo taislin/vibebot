@@ -247,7 +247,7 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         ]
         bm25_retriever = BM25Retriever.from_documents(bm25_docs)
         bm25_retriever.k = 2
-
+        logger.info("Starting embeddings...")
         embedding = HuggingFaceEmbeddings(model_name=embed_model)
         dense_retrievers = []
         for ns in ["learned", "code", "qa_history", ""]:
@@ -260,12 +260,14 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             )
             dense_retrievers.append(safe_retriever)
 
+        logger.info("Finished retrievers...")
         # Combine dense + sparse retrievers
         retriever = EnsembleRetriever(
             retrievers=dense_retrievers + [bm25_retriever],
             weights=[1.0] * (len(dense_retrievers) + 1),
         )
 
+        logger.info("Finished combining retrievers...")
         # Retrieve documents
         docs = retriever.invoke(input_text)
         context = "\n".join(

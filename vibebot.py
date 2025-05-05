@@ -42,17 +42,7 @@ def main():
         return
     index = pc.Index(pinecone_index_name)
 
-    # Load metadata for BM25
-    with open("metadata.json", "r") as f:
-        raw_docs = json.load(f)
-
-    bm25_docs = [
-        Document(page_content=doc["chunk"], metadata={"source": doc["file"]})
-        for doc in raw_docs
-    ]
-    bm25_retriever = BM25Retriever.from_documents(bm25_docs)
-    bm25_retriever.k = 2
-
+    # BM25 Retriever is disabled
     embedding = HuggingFaceEmbeddings(model_name=embed_model)
     dense_retrievers = []
     for ns in ["learned", "code", "qa_history", ""]:
@@ -60,11 +50,9 @@ def main():
             index=index, embedding=embedding, text_key="chunk", namespace=ns
         )
         dense_retrievers.append(vs.as_retriever(search_kwargs={"k": 2}))
-
-    # Combine dense + sparse retrievers
     retriever = EnsembleRetriever(
-        retrievers=dense_retrievers + [bm25_retriever],
-        weights=[1.0] * (len(dense_retrievers) + 1),
+        retrievers=dense_retrievers,  # Only use dense retrievers
+        weights=[1.0] * len(dense_retrievers),  # Adjust weights accordingly
     )
     client = Groq(api_key=groq_api_key)
 

@@ -237,17 +237,6 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(pinecone_index_name)
 
-        # Load metadata for BM25
-        with open("metadata.json", "r") as f:
-            raw_docs = json.load(f)
-
-        bm25_docs = [
-            Document(page_content=doc["chunk"], metadata={"source": doc["file"]})
-            for doc in raw_docs
-        ]
-        bm25_retriever = BM25Retriever.from_documents(bm25_docs)
-        bm25_retriever.k = 2
-        logger.info("Starting embeddings...")
         embedding = HuggingFaceEmbeddings(model_name=embed_model)
         dense_retrievers = []
         for ns in ["learned", "code", "qa_history", ""]:
@@ -260,14 +249,11 @@ async def query_cmd(ctx: SlashContext, input_text: str, mode: str = "general"):
             )
             dense_retrievers.append(safe_retriever)
 
-        logger.info("Finished retrievers...")
-        # Combine dense + sparse retrievers
         retriever = EnsembleRetriever(
-            retrievers=dense_retrievers + [bm25_retriever],
-            weights=[1.0] * (len(dense_retrievers) + 1),
+            retrievers=dense_retrievers,  # Only use dense retrievers
+            weights=[1.0] * len(dense_retrievers),  # Adjust weights accordingly
         )
 
-        logger.info("Finished combining retrievers...")
         # Retrieve documents
         docs = retriever.invoke(input_text)
         context = "\n".join(
